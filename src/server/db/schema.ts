@@ -107,11 +107,12 @@ export const careItems = pgTable(
       .notNull()
       .references(() => users.id),
     closedAt: timestamp("closed_at", { withTimezone: true }),
-    /** Keep the note text past the retention period (src/server/daily/retention.ts). */
+    // The three columns below belonged to the three-year note purge, which was retired (Daniel, 2026-11-25): care notes
+    // are no longer cleared on a timer. Nothing sets keep_notes or notes_unkept_at any more, and nothing clears notes.
+    // The columns stay (no destructive migration).
     keepNotes: boolean("keep_notes").notNull().default(false),
-    /** When "keep" was last switched off: the notes then get 30 more days, even past their three years. */
     notesUnkeptAt: timestamp("notes_unkept_at", { withTimezone: true }),
-    /** When the retention job cleared this item's note text. The rows and dates stay. */
+    /** When the retired purge cleared this item's note text, if it ever did. */
     notesPurgedAt: timestamp("notes_purged_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -209,7 +210,9 @@ export const contactLog = pgTable(
 
 /**
  * The Inbox. Every arrival is a proposal; nothing reaches the care list until
- * clergy accept it. raw_text is cleared when the proposal is decided.
+ * clergy accept it. raw_text (the words as they arrived) is KEPT when the proposal is accepted
+ * or dismissed (Daniel, 2026-11-25), for clergy only: src/server/care/original-reports.ts. The
+ * reading and the intake are still cleared on the decision.
  */
 export const proposals = pgTable(
   "proposals",
@@ -220,6 +223,8 @@ export const proposals = pgTable(
     submittedBy: uuid("submitted_by").references(() => users.id),
     submitterLabel: text("submitter_label"),
     rawText: text("raw_text"),
+    /** Set on acceptance when the words were written into a note private to the acceptor (a sensitive reading added to an existing item): the kept words are then theirs alone to read, like that note. */
+    wordsPrivate: boolean("words_private").notNull().default(false),
     /** The sorted reading (src/server/care/reading.ts). */
     reading: jsonb("reading"),
     /** submitter: only the clergy member who captured it reviews it. clergy: the shared Inbox. */
@@ -231,7 +236,7 @@ export const proposals = pgTable(
     createdAt: createdAt(),
     /** A stable key for an arrival that must never become two proposals (a Salesforce death or birth). It is kept after the decision, so a dismissed proposal is never recreated. */
     externalKey: text("external_key"),
-    /** What the sender or the source stated (public form: about, sender, contact; Salesforce: ids). Pastoral: cleared with raw_text when decided. Never verified. */
+    /** What the sender or the source stated (public form: about, sender, contact; Salesforce: ids). Pastoral: cleared when decided (it holds the sender's name and contact). Never verified. */
     intake: jsonb("intake"),
     /** Public form: "May we tell them you let us know?" yes | no. */
     mayTellThem: text("may_tell_them"),
@@ -997,7 +1002,7 @@ export const visitingVisits = pgTable(
 /**
  * A rabbi refers a person to Mitzvah Corps: what kind of help, whether the person has said yes, and how to reach them.
  * It carries NO health information and no link into care records: no category, no summary, no care item id. The lead
- * sees it on the coordinator home (src/server/volunteers/referrals.ts). Closed rows are deleted after 90 days.
+ * sees it on the coordinator home (src/server/volunteers/referrals.ts). Closed rows are kept, with everything written in them (Daniel, 2026-11-25).
  */
 export const corpsReferrals = pgTable(
   "corps_referrals",
@@ -1115,8 +1120,8 @@ export const notificationHeld = pgTable(
 /**
  * The clergy meeting agenda: a running list for the weekly conversation. An entry is about a care item, a person, or
  * nothing (free text). Who sees it follows its care item (agendaEntryVisibleWhere in src/server/access/policy.ts): an entry
- * on a restricted item exists only for those who fully see the item. `why` and `outcome` are free text (cleared with the
- * item's notes); discussed entries are deleted 90 days after they were discussed.
+ * on a restricted item exists only for those who fully see the item. `why` and `outcome` are free text. Entries and their
+ * words are kept: nothing clears or deletes them on a timer (Daniel, 2026-11-25).
  */
 export const agendaEntries = pgTable(
   "agenda_entries",

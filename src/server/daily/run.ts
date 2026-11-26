@@ -4,6 +4,11 @@
  * that fails does not stop the others. Each run of each task is a job_runs row:
  * when, ok or the error's NAME only, and counts only. Nothing here logs a name,
  * a note or a token.
+ *
+ * Daniel, 2026-11-25: "I want it all kept." Nothing here clears or deletes what clergy wrote or
+ * were told: care notes, the words of a report, agenda entries and Mitzvah Corps referrals are
+ * not on a timer. The clean-ups that remain concern volunteers', helpers' and senders' contact
+ * details and operational rows (tokens, counters, logs).
  */
 import { and, desc, eq, inArray, isNull, ne, notExists } from "drizzle-orm";
 import { canSeeJobRuns, deny, type Actor } from "@/server/access/policy";
@@ -20,11 +25,9 @@ import { purgeEmailLog } from "@/server/email/send";
 import { purgeMealData } from "@/server/meals/purge";
 import { purgeVolunteerData } from "@/server/volunteers/purge";
 import { rosterUpkeep } from "@/server/volunteers/roster";
-import { purgeReferrals } from "@/server/volunteers/referrals";
+import { lapseReferrals } from "@/server/volunteers/referrals";
 import { purgeVisiting } from "@/server/volunteers/visiting";
-import { countDecidedWithWords, countStaleReporters, pruneRateLimits, purgeOldDismissals, revokeIdleCaptureTokens } from "./housekeeping";
-import { purgeOldNotes } from "./retention";
-import { purgeAgenda } from "@/server/care/agenda";
+import { countStaleReporters, pruneRateLimits, purgeOldDismissals, revokeIdleCaptureTokens } from "./housekeeping";
 import { purgeReporters } from "@/server/care/reporter";
 import { flushHeld, noticeCoveringTomorrow, noticeUnfilledAsks, purgeNotificationLog } from "@/server/notify/notify";
 import { pushSummaryChannel } from "@/server/notify/summary-channel";
@@ -65,16 +68,15 @@ export const DAILY_TASKS: readonly DailyTask[] = [
   { key: "volunteer_purge", run: async ({ db, now }) => purgeVolunteerData(db, now) },
   { key: "roster_upkeep", run: async ({ db, now }) => rosterUpkeep(db, now) },
   { key: "visiting_purge", run: async ({ db, now }) => purgeVisiting(db, now) },
-  { key: "corps_referral_purge", run: async ({ db, now }) => purgeReferrals(db, now) },
+  { key: "corps_referral_lapse", run: async ({ db, now }) => lapseReferrals(db, now) },
   { key: "mi_sheberach_expiry", run: async ({ db, now }) => expireDueEntries(db, now) },
   { key: "mi_sheberach_sync", run: packetSync },
-  { key: "note_retention", run: async ({ db, now }) => purgeOldNotes(db, now) },
   { key: "standing_check_ins", run: standingSafetyNet },
   {
     key: "housekeeping",
-    run: async ({ db, now }) => ({ tokensRevoked: await revokeIdleCaptureTokens(db, now), rateLimitRowsDeleted: await pruneRateLimits(db, now), decidedProposalsWithWords: await countDecidedWithWords(db), staleReporters: await countStaleReporters(db, now), suggestionsPurged: await purgeOldDismissals(db, now).catch(() => 0), emailLogDeleted: await purgeEmailLog(db, now).catch(() => 0) }),
+    run: async ({ db, now }) => ({ tokensRevoked: await revokeIdleCaptureTokens(db, now), rateLimitRowsDeleted: await pruneRateLimits(db, now), staleReporters: await countStaleReporters(db, now), suggestionsPurged: await purgeOldDismissals(db, now).catch(() => 0), emailLogDeleted: await purgeEmailLog(db, now).catch(() => 0) }),
   },
-  { key: "clergy_upkeep", run: async ({ db, now }) => ({ agendaDeleted: (await purgeAgenda(db, now)).deleted, reportersCleared: (await purgeReporters(db, now)).cleared }) },
+  { key: "clergy_upkeep", run: async ({ db, now }) => ({ reportersCleared: (await purgeReporters(db, now)).cleared }) },
   { key: "cover_notice", run: async ({ db, now, owners }) => ({ sent: await noticeCoveringTomorrow(db, now, owners) }) },
   { key: "volunteer_asks_notice", run: async ({ db, now, owners }) => ({ ...(await noticeUnfilledAsks(db, now, owners)) }) },
   {

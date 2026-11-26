@@ -76,8 +76,8 @@ Decided by Daniel on 2026-11-24. The full analysis is `docs/planning/2026-11-24-
 - **Restricted items.** A care item can be restricted to named clergy. By default other clergy see only "In Rabbi X's care"; per item this can be set to nothing at all. No role, the owner included, overrides it.
 - **Journeys.** Templates create follow-ups: bereavement year, illness and hospital, standing check-ins, new baby and simchas.
 - **Volunteers** get a link that needs no account: claim a task, mark it done. A task never carries a diagnosis or a note.
-- **Refer to Mitzvah Corps.** From a person's page (or by telling Claude) a rabbi sends the Mitzvah Corps lead what a volunteer needs: the kind of help, whether the person has said yes, how to reach them, whether the address may be shared, who is already involved. Never why: no diagnosis, no category, no link into the care record.
-  The lead sees it under "Referred by the rabbis" on their home, takes it, and closes it with one line the rabbis read on the person's page. While "a rabbi will ask first" the lead does not see it at all; it reaches her once a rabbi marks that the person agreed, or that she should ask. Other rabbis see that the person was referred, not by whom. What the rabbi tells the lead in a referral is the rabbi's to decide (Daniel, 2026-11-25: "Rabbi decides for sure. But broadly that's not the role of this app"): the app does not refuse or police the words. Volunteer tasks and public pages still never carry a reason. Nothing written is erased when a referral closes: the rabbis read all of it on the person's page, and it is deleted after 90 days. One left open for 60 days is withdrawn.
+- **Refer to Mitzvah Corps.** From a person's page (or by telling Claude) a rabbi sends the Mitzvah Corps lead what a volunteer needs: the kind of help, whether the person has said yes, how to reach them, whether the address may be shared, who is already involved, and whatever else the rabbi chooses to say. Nothing is copied from the care record: no category, no link into it.
+  The lead sees it under "Referred by the rabbis" on their home, takes it, and closes it with one line the rabbis read on the person's page. While "a rabbi will ask first" the lead does not see it at all; it reaches her once a rabbi marks that the person agreed, or that she should ask. Other rabbis see that the person was referred, not by whom. What the rabbi tells the lead in a referral is the rabbi's to decide (Daniel, 2026-11-25: "Rabbi decides for sure. But broadly that's not the role of this app"): the app does not refuse or police the words. Volunteer tasks and public pages still never carry a reason. Nothing written is erased when a referral closes, and a closed referral is never deleted: the rabbis read all of it on the person's page. One nobody has taken after 60 days is withdrawn.
 - **Mi Sheberach list**, with consent and expiry.
 - **Outbound.** A contentless morning summary to the team, asks to volunteers, a thank-you to reporters. By email, push, or the sender's own phone.
 - **No radar.** The app shows only what people put in.
@@ -88,6 +88,21 @@ Decided by Daniel on 2026-11-24. The full analysis is `docs/planning/2026-11-24-
 - `lead` (Mitzvah Corps lead): post and assign volunteer tasks; see logistics, never clergy notes.
 - `senior_staff`: a coverage picture without names; report a need.
 Congregants have no account; they use the public form.
+
+## What is kept
+Decided by Daniel on 2026-11-25. Asked whether a report's words should be refused or erased, he said: "When anyone writes, nothing should be refused. We want to maintain that information because that's useful for the rabbis to see." Asked about the timed deletions of what clergy write, he said: "I want it all kept." These replace the earlier rules (notes deleted three years after a care item closed unless marked "keep"; a report's words erased once it was accepted or dismissed; agenda entries deleted after 90 days; closed referrals deleted after 90 days).
+
+- **Care notes** are not deleted on a timer: a care item's own text, its contact log notes and its follow-ups stay as written, however long ago it closed. The "Keep these notes" switch is gone, as there is nothing left for it to switch off.
+- **A report's words** stay after a rabbi accepts or dismisses it. Only clergy read them back, as "Original report" on the care item it became, and only those who can see that item: a restricted item's original words are for its owner and the clergy named on it, the owner role included in "nobody else". When a sensitive report was added to an existing item as a note private to the rabbi who accepted it, the original words are that rabbi's alone too. A dismissed report's words are kept for the clergy who could have reviewed it; no screen shows them yet. Staff, leads, senior staff, caregivers and the person who sent the report never read them back: a reporter still sees only a date and a status. The AI's reading of a report is still cleared on the decision. The words are never in a log, an email, a push notice, an audit row or the connector.
+- **Agenda entries** and their words are not deleted on a timer. A discussed entry still leaves the screen after two weeks.
+- **Mitzvah Corps referrals** that have closed are kept, with the lead's one line.
+- One exception, unchanged: when a rabbi leaves the clergy or is deactivated, their own unreviewed captures (which only they could ever have reviewed) are dismissed and their words erased.
+
+The timers that remain concern other people's contact details and operational records, not what clergy wrote:
+- A public sender's name and contact: cleared when their report is decided, except the name and email of a sender who agreed to be thanked, kept 30 days after the decision.
+- Volunteers' and meal helpers' sign-up contact details, and people who left the volunteer roster: as before.
+- A referral nobody took is withdrawn after 60 days; nothing written in it is erased.
+- Capture keys unused for 180 days, set-aside suggestions, rate-limit counters, and the email and notification logs: as before.
 
 ## Still true
 At most one daily scheduled job. Inbound email and form posts are single requests, not polling.

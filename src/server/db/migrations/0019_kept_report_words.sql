@@ -1,0 +1,1 @@
+ALTER TABLE "proposals" ADD COLUMN "words_private" boolean DEFAULT false NOT NULL;

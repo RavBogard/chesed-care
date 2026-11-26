@@ -81,7 +81,8 @@ export async function updateUser(
     if (leavesClergy) {
       // Only active clergy are named on restricted items; a later return does not bring old access back.
       await tx.delete(careItemAccess).where(eq(careItemAccess.userId, userId));
-      // Their own captures, which only they could review, are dismissed and their words erased.
+      // Their own captures, which only they could review, are dismissed and their words erased: nobody else could ever review them.
+      // (An ordinary decision keeps the words, proposals.ts; this one deliberately does not.)
       const dismissed = await tx
         .update(proposals)
         .set({ status: "dismissed", decidedBy: actor.id, decidedAt: new Date(), rawText: null, reading: null })

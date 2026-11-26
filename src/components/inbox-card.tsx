@@ -290,7 +290,7 @@ export function InboxCard({ entry, today, actorId, holders, journeyChoices = [] 
           fields={{ proposalId: p.id }}
           label="Dismiss"
           title="Dismiss this?"
-          explain="It is closed without action and the words are erased. Whoever sent it will see that it was closed without action."
+          explain="It is closed without action. The words are kept for the rabbis. Whoever sent it will see that it was closed without action."
           confirmLabel="Dismiss"
         />
         {entry.own ? (

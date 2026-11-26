@@ -104,12 +104,12 @@ describe("the public form", () => {
     expect(await all()).toHaveLength(TELL_LIMITS.perHour);
   });
 
-  it("deciding it erases the words and the sender's details, and keeps the Mi Sheberach answer", async () => {
+  it("deciding it keeps the words, still erases the sender's details, and keeps the Mi Sheberach answer", async () => {
     await submitTell(db, form(), meta(), NOW);
     const [p] = await all();
     await dismissProposal(db, t.clergy, p.id, NOW);
     const [after] = await all();
-    expect(after).toMatchObject({ status: "dismissed", rawText: null, intake: null, miSheberachAnswer: "yes" });
+    expect(after).toMatchObject({ status: "dismissed", rawText: "She is in the hospital", intake: null, miSheberachAnswer: "yes" });
   });
 });
 

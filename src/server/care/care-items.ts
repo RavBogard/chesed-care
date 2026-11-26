@@ -7,7 +7,6 @@ import {
   canManageCareItems,
   canSeeCareItem,
   canSetCorpsNote,
-  canSetKeepNotes,
   canSeeStrandedRestricted,
   careItemStubWhere,
   careItemVisibleWhere,
@@ -110,7 +109,7 @@ async function releaseHiddenFollowUps(db: Db, itemId: string, ownerUserId: strin
   await db.update(followUps).set({ ownerUserId: null }).where(hidden);
 }
 
-/** New note text on an item whose old notes were cleared: the item is no longer "cleared", so the three-year rule applies to it again from its next close. */
+/** New note text on an item whose notes the retired three-year purge once cleared: the leftover mark comes off. (Nothing clears notes on a timer any more: Daniel, 2026-11-25.) */
 export async function markNotesWritten(db: Db, careItemId: string): Promise<void> {
   await db.update(careItems).set({ notesPurgedAt: null }).where(and(eq(careItems.id, careItemId), isNotNull(careItems.notesPurgedAt)));
 }
@@ -363,24 +362,6 @@ export async function closeCareItem(db: Db, actor: Actor, id: unknown, now: Date
   });
 }
 
-/** Mark an item's notes "keep" so the retention job never clears them, or take the mark off. Clergy level who fully see it. Audited. */
-export async function setKeepNotes(db: Db, actor: Actor, id: unknown, keep: unknown, now: Date = new Date()): Promise<CareItem> {
-  const { item, access } = await loadVisibleCareItemAccess(db, actor, id);
-  if (!canSetKeepNotes(actor, access)) deny();
-  if (typeof keep !== "boolean") throw new InvalidInput("keepNotes");
-  if (item.keepNotes === keep) return item;
-  return db.transaction(async (tx) => {
-    // Switching "keep" off gives the notes 30 more days, even when their three years are already up (src/server/daily/retention.ts).
-    const [row] = await tx
-      .update(careItems)
-      .set({ keepNotes: keep, notesUnkeptAt: keep ? null : now })
-      .where(eq(careItems.id, item.id))
-      .returning();
-    await writeAudit(tx, actor, "care_item.keep_notes", "care_item", item.id, { keepNotes: keep });
-    return row;
-  });
-}
-
 export const CORPS_NOTE_MAX = 300;
 
 /**
@@ -400,7 +381,7 @@ export async function setCorpsNote(db: Db, actor: Actor, id: unknown, note: unkn
 }
 
 export async function reopenCareItem(db: Db, actor: Actor, id: unknown): Promise<CareItem> {
-  // A reopened item is live again: if its notes were cleared, the rule starts over from its next close.
+  // A reopened item is live again; a leftover mark of the retired note purge comes off.
   return setStatus(db, actor, id, { status: "open", closedAt: null, pausedUntil: null, notesPurgedAt: null });
 }
 

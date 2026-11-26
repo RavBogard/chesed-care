@@ -7,6 +7,7 @@ import type { EntryView } from "@/server/misheberach/list";
 import { canChangeRestriction, canManageCareItems, canManageMealPages, isClergyLevel, type Actor } from "@/server/access/policy";
 import type { CareItem, CareItemStub } from "@/server/care/care-items";
 import type { ContactEntry } from "@/server/care/contact-log";
+import type { OriginalReport } from "@/server/care/original-reports";
 import type { FollowUp } from "@/server/care/follow-ups";
 import type { TeamMember } from "@/server/care/users";
 import { isPausedCareItem } from "@/server/care/status";
@@ -18,7 +19,8 @@ import { THANK_WORDS } from "@/lib/clergy-wording";
 import { thankYouMailto } from "@/lib/thank-you";
 import { CareFields, type TeamChoice } from "./care-fields";
 import { CorpsNote } from "./corps-note";
-import { ItemJourneys, NotesRetention, StartJourney } from "./care-journeys";
+import { ItemJourneys, StartJourney } from "./care-journeys";
+import { CHANNEL_LABEL } from "./inbox-card";
 import { ActionButton, ConfirmAction } from "./confirm-sheet";
 import { EndEntry } from "./misheberach/entry-forms";
 import { FollowUpControls } from "./follow-up-controls";
@@ -46,6 +48,8 @@ export type CareView = {
   miSheberach?: { person: EntryView[]; items: EntryView[] };
   /** Clergy: who told us about each care item the viewer fully sees, when the sender agreed we may say so (public form, accepted). */
   reporters?: Record<string, { name: string; email: string }>;
+  /** Clergy: the words of the reports behind each care item, as they arrived, for the items the viewer may read them on (src/server/care/original-reports.ts). */
+  originalReports?: Record<string, OriginalReport[]>;
 };
 
 const KIND = { call: "Call", visit: "Visit", text: "Text", other: "Contact" } as const;
@@ -118,6 +122,26 @@ function MiSheberachLine({ item, view }: { item: CareItem; view: CareView }) {
   );
 }
 
+/** "Original report": the words a report arrived with, collapsed. Plain text only; the server decides who gets any (clergy who may). */
+function OriginalReports({ reports }: { reports: OriginalReport[] | undefined }) {
+  if (!reports?.length) return null;
+  return (
+    <details className="mt-2" data-testid="original-report">
+      <summary className={`${btnText} cursor-pointer`}>{reports.length === 1 ? "Original report" : `Original reports (${reports.length})`}</summary>
+      <ul className="mt-1 flex flex-col gap-2">
+        {reports.map((r) => (
+          <li key={r.proposalId}>
+            <p className="text-sm text-rubric">
+              {CHANNEL_LABEL[r.channel]} · {instantDate(r.receivedAt)}
+            </p>
+            <blockquote className="mt-1 whitespace-pre-wrap break-words rounded-md bg-tint p-3 text-base text-ink">{r.words}</blockquote>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function CareItemCard({ item, view, actor, holders }: { item: CareItem; view: CareView; actor: Actor; holders: TeamChoice[] }) {
   const manage = canManageCareItems(actor);
   const owner = view.team.find((t) => t.id === item.ownerUserId);
@@ -162,6 +186,7 @@ function CareItemCard({ item, view, actor, holders }: { item: CareItem; view: Ca
           </span>
         </p>
       ) : null}
+      <OriginalReports reports={view.originalReports?.[item.id]} />
       {view.miSheberach && manage ? <MiSheberachLine item={item} view={view} /> : null}
       {mine.length > 0 ? (
         <ul className="mt-3 flex flex-col gap-3">
@@ -362,7 +387,7 @@ export function PersonCare({ view, actor }: { view: CareView; actor: Actor }) {
                         </div>
                       ))
                   : null}
-                <NotesRetention item={i} manage={manage} />
+                <OriginalReports reports={view.originalReports?.[i.id]} />
               </li>
             ))}
           </ul>

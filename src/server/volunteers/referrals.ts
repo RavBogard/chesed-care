@@ -8,7 +8,7 @@
  * Nothing is copied from a care record: a referral holds NO care category, summary or pastoral note and no care item id. The views are built here field by field.
  * Audit rows hold ids and enum values only, never a name, a contact line or a note. Nothing here is logged.
  */
-import { and, asc, desc, eq, gte, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { REFERRAL_CONSENTS, REFERRAL_KINDS, REFERRAL_LIMITS, type ReferralConsent, type ReferralKind } from "@/lib/referral-wording";
 import { canReferToCorps, canSeeCorpsReferrals, deny, isClergyLevel, outsidePersonVisibleWhere, type Actor } from "@/server/access/policy";
@@ -28,8 +28,8 @@ export type ClosedAs = (typeof CLOSED_AS)[number];
 
 /** An open referral nobody has closed is withdrawn after this long, so nothing sits on the coordinator's list for ever. */
 export const REFERRAL_OPEN_DAYS = 60;
-/** A closed referral is deleted this long after it was closed. */
-export const REFERRAL_RETENTION_DAYS = 90;
+/** A person's page shows this many of their closed referrals, newest first, and counts the rest. */
+export const CLOSED_SHOWN = 5;
 /** Referrals one person may make in an hour: far above a busy day, far below a loop. */
 export const REFERRALS_PER_HOUR = 30;
 
@@ -137,7 +137,7 @@ export async function setReferralConsent(db: Db, actor: Actor, id: unknown, cons
   afterResponse(() => noticeReferral(db, row.id));
 }
 
-/** Clergy take a referral back. It leaves the coordinator's list at once and is deleted 90 days later. */
+/** Clergy take a referral back. It leaves the coordinator's list at once; the closed row is kept. */
 export async function withdrawReferral(db: Db, actor: Actor, id: unknown, now: Date = new Date()): Promise<void> {
   if (!canReferToCorps(actor)) deny();
   const row = await loadOpen(db, actor, id);
@@ -255,34 +255,35 @@ export async function closeReferral(db: Db, actor: Actor, id: unknown, input: { 
 
 export type PersonReferrals = {
   open: { id: string; kind: ReferralKind; consent: ReferralConsent; createdAt: Date; takenByName: string | null } | null;
-  /** Closed in the last 90 days, newest first, with everything that was written: what the rabbi sent and the line the coordinator left (Daniel, 2026-11-25: what people write is kept for the rabbis to see). */
+  /** The most recent closed ones (at most CLOSED_SHOWN), newest first, with everything that was written: what the rabbi sent and the line the coordinator left (Daniel, 2026-11-25: what people write is kept for the rabbis to see). */
   closed: { id: string; kind: ReferralKind; closedAs: ClosedAs; closedAt: Date; outcomeLine: string | null; contactLine: string | null; alreadyInvolved: string | null; note: string | null }[];
+  /** How many older closed referrals there are beyond those. */
+  olderClosed: number;
 };
 
-/** For a person's page (clergy only): their open referral and the ones closed lately. Everyone else gets null and no hint that referrals exist. */
-export async function referralsForPerson(db: Db, actor: Actor, ref: { sfContactId?: string | null; outsidePersonId?: string | null }, now: Date = new Date()): Promise<PersonReferrals | null> {
+/** For a person's page (clergy only): their open referral and their closed ones, however old. Everyone else gets null and no hint that referrals exist. */
+export async function referralsForPerson(db: Db, actor: Actor, ref: { sfContactId?: string | null; outsidePersonId?: string | null }): Promise<PersonReferrals | null> {
   if (!canReferToCorps(actor)) return null;
   const who = ref.outsidePersonId ? eq(corpsReferrals.outsidePersonId, ref.outsidePersonId) : ref.sfContactId ? eq(corpsReferrals.sfContactId, ref.sfContactId) : null;
   if (!who) return null;
-  const since = new Date(now.getTime() - REFERRAL_RETENTION_DAYS * 86_400_000);
   const rows = await db
     .select({ id: corpsReferrals.id, kind: corpsReferrals.kind, consent: corpsReferrals.consent, createdAt: corpsReferrals.createdAt, takenBy: corpsReferrals.takenBy, takerName: users.name, closedAt: corpsReferrals.closedAt, closedAs: corpsReferrals.closedAs, outcomeLine: corpsReferrals.outcomeLine, contactLine: corpsReferrals.contactLine, alreadyInvolved: corpsReferrals.alreadyInvolved, note: corpsReferrals.note })
     .from(corpsReferrals)
     .leftJoin(users, eq(users.id, corpsReferrals.takenBy))
-    .where(and(who, referralVisibleWhere(actor), or(isNull(corpsReferrals.closedAt), gte(corpsReferrals.closedAt, since))))
+    .where(and(who, referralVisibleWhere(actor)))
     .orderBy(desc(corpsReferrals.closedAt));
   const open = rows.find((r) => r.closedAt === null);
+  const closed = rows.flatMap((r) => (r.closedAt && r.closedAs ? [{ id: r.id, kind: r.kind as ReferralKind, closedAs: r.closedAs as ClosedAs, closedAt: r.closedAt, outcomeLine: r.outcomeLine, contactLine: r.contactLine, alreadyInvolved: r.alreadyInvolved, note: r.note }] : []));
   return {
     open: open ? { id: open.id, kind: open.kind as ReferralKind, consent: open.consent as ReferralConsent, createdAt: open.createdAt, takenByName: open.takenBy ? (open.takerName ?? "Someone") : null } : null,
-    closed: rows.flatMap((r) => (r.closedAt && r.closedAs ? [{ id: r.id, kind: r.kind as ReferralKind, closedAs: r.closedAs as ClosedAs, closedAt: r.closedAt, outcomeLine: r.outcomeLine, contactLine: r.contactLine, alreadyInvolved: r.alreadyInvolved, note: r.note }] : [])),
+    closed: closed.slice(0, CLOSED_SHOWN),
+    olderClosed: Math.max(0, closed.length - CLOSED_SHOWN),
   };
 }
 
-/** Daily: an open referral nobody took in 60 days is withdrawn (nobody's name on it; one a coordinator is working is left alone; what was written stays), and referrals closed 90 or more days ago are deleted. No actor; counts only. */
-export async function purgeReferrals(db: Db, now: Date = new Date()): Promise<{ lapsed: number; deleted: number }> {
+/** Daily: an open referral nobody took in 60 days is withdrawn (nobody's name on it; one a coordinator is working is left alone; what was written stays). Closed referrals are kept: nothing is deleted or erased. No actor; counts only. */
+export async function lapseReferrals(db: Db, now: Date = new Date()): Promise<{ lapsed: number }> {
   const stale = new Date(now.getTime() - REFERRAL_OPEN_DAYS * 86_400_000);
   const lapsed = await db.update(corpsReferrals).set({ closedAt: now, closedAs: "withdrawn" }).where(and(isNull(corpsReferrals.closedAt), isNull(corpsReferrals.takenBy), lte(corpsReferrals.createdAt, stale))).returning({ id: corpsReferrals.id });
-  const cutoff = new Date(now.getTime() - REFERRAL_RETENTION_DAYS * 86_400_000);
-  const gone = await db.delete(corpsReferrals).where(and(isNotNull(corpsReferrals.closedAt), lte(corpsReferrals.closedAt, cutoff))).returning({ id: corpsReferrals.id });
-  return { lapsed: lapsed.length, deleted: gone.length };
+  return { lapsed: lapsed.length };
 }

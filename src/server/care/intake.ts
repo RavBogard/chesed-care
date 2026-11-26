@@ -5,7 +5,8 @@
  * or says whether anyone is known. What a sender stated is never verified.
  *
  * The stated words (raw_text) and the stated details (intake) are pastoral: never
- * logged or audited, and cleared when the proposal is decided (proposals.ts).
+ * logged or audited. When the proposal is decided the details (intake: the sender's
+ * name and contact) are cleared; the words are kept for clergy (proposals.ts).
  */
 import { z } from "zod";
 import { proposals } from "@/server/db/schema";

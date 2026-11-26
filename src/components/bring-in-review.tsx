@@ -145,7 +145,7 @@ export function BringInReview({ entry, quick, position, total, left, skipHref, t
         <Link href={skipHref} scroll={false} className={btnQuiet}>
           Skip for now
         </Link>
-        <ConfirmAction action={dismissProposalAction} fields={{ proposalId: p.id }} label="Not a care item" title="Not a care item?" explain="It is closed without action and the words are erased." confirmLabel="Not a care item" />
+        <ConfirmAction action={dismissProposalAction} fields={{ proposalId: p.id }} label="Not a care item" title="Not a care item?" explain="It is closed without action. The words are kept for the rabbis." confirmLabel="Not a care item" />
       </div>
       <p className="text-sm text-rubric">Keys: Enter accepts, S skips.</p>
     </section>

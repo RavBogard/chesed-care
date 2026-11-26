@@ -684,13 +684,6 @@ export function canEditJourneyTemplates(actor: Actor): boolean {
   return isClergyLevel(actor);
 }
 
-// ─── note retention ──────────────────────────────────────────────────────────────────
-
-/** Mark a care item's notes "keep" (or not): clergy level who fully see it. */
-export function canSetKeepNotes(actor: Actor, item: CareItemAccessRow): boolean {
-  return canManageCareItems(actor) && canSeeCareItem(actor, item);
-}
-
 // ─── the daily job and the morning summary ───────────────────────────────────────────
 
 /** The "Daily job" block in Settings: when it last ran and each task's state, counts only. */
@@ -895,6 +888,15 @@ export function canCover(user: { role: Role; active: boolean }): boolean {
 /** Edit an outside person: those who may manage outside people (and so see this one). */
 export function canEditOutsidePerson(actor: Actor): boolean {
   return canManageOutsidePeople(actor);
+}
+
+/**
+ * The kept words of a decided report ("Original report"): clergy level, never anyone else. Which reports is decided in
+ * src/server/care/original-reports.ts: an accepted one by careItemVisibleWhere on the item it became (and its acceptor
+ * alone when the words went into a private note), a dismissed one by canReviewProposal.
+ */
+export function canReadOriginalReports(actor: Actor): boolean {
+  return isClergyLevel(actor);
 }
 
 /** "Told to us by": clergy level. Which items it shows on is decided in SQL by careItemVisibleWhere (src/server/care/reporter.ts). */

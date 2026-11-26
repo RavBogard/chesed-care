@@ -1,6 +1,7 @@
 import type { CareView } from "@/components/person-care";
 import { isClergyLevel, type Actor } from "@/server/access/policy";
 import { listCareItemAccess } from "@/server/care/care-items";
+import { getOriginalReports } from "@/server/care/original-reports";
 import { getReporterLines } from "@/server/care/reporter";
 import type { OutsidePersonPage, PersonPage } from "@/server/care/person-page";
 import { getDb } from "@/server/db/client";
@@ -58,5 +59,14 @@ export async function careViewFor(actor: Actor, page: PersonPage | OutsidePerson
       logFailure("Person: reporter line unavailable", error);
     }
   }
-  return { today: page.today, name: page.name, careItems: page.careItems, restrictedCare: page.restrictedCare, followUps: page.followUps, contacts: page.contacts, team: page.team, access, journeys, journeyChoices, miSheberach, reporters };
+  // "Original report" (clergy): the kept words, read through the item's own visibility. A failure leaves it off the page; the error's name only is logged.
+  let originalReports: CareView["originalReports"];
+  if (isClergyLevel(actor)) {
+    try {
+      originalReports = Object.fromEntries(await getOriginalReports(db, actor, page.careItems.map((i) => i.id)));
+    } catch (error) {
+      logFailure("Person: original report unavailable", error);
+    }
+  }
+  return { today: page.today, name: page.name, careItems: page.careItems, restrictedCare: page.restrictedCare, followUps: page.followUps, contacts: page.contacts, team: page.team, access, journeys, journeyChoices, miSheberach, reporters, originalReports };
 }

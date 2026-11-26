@@ -77,3 +77,4 @@ export const referredWords = (date: string, takenBy: string | null) => `Referred
 export const referredByWords = (name: string, date: string) => `Referred by ${name}, ${date}`;
 export const CLOSED_WORDS = { done: "Done", declined: "They said no thank you", withdrawn: "Withdrawn" } as const;
 export const PAST_REFERRALS = "Earlier referrals";
+export const olderReferralsWords = (n: number) => (n === 1 ? "And 1 older referral." : `And ${n} older referrals.`);

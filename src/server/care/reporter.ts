@@ -1,6 +1,6 @@
 /**
  * "Told to us by": for a proposal from the public form that was accepted, whose sender gave an email AND answered yes to
- * "May we tell them you let us know?". Accepting a proposal clears what the sender stated (proposals.ts); this keeps only the
+ * "May we tell them you let us know?". Accepting a proposal clears the details the sender stated (the intake: who it is about, their name and contact; proposals.ts keeps only the words); this keeps only the
  * sender's own name and email, for 30 days after the decision, so a clergy member can thank them from their OWN mail app.
  * Nothing is sent by this app. The line is shown only to those who fully see the accepted care item (careItemVisibleWhere,
  * so a restricted item's line exists only for those with access).

@@ -5,14 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TellForm } from "@/components/tell/tell-form";
 import { TELL_KEEP } from "@/lib/tell-wording";
 import { type Actor } from "@/server/access/policy";
-import { addAgendaEntry, listAgenda, purgeAgenda } from "@/server/care/agenda";
+import { addAgendaEntry, listAgenda } from "@/server/care/agenda";
 import { createCareItem } from "@/server/care/care-items";
 import { createFollowUp } from "@/server/care/follow-ups";
 import { createPublicProposal } from "@/server/care/intake";
 import { MAX_OFFSET, searchNotes } from "@/server/care/notes-search";
 import { createOutsidePerson, updateOutsidePerson } from "@/server/care/outside-people";
 import { createProposal } from "@/server/care/proposals";
-import { purgeOldNotes } from "@/server/daily/retention";
+import { runDailyJob } from "@/server/daily/run";
 import { countStaleReporters } from "@/server/daily/housekeeping";
 import { agendaEntries, auditLog, proposals } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
@@ -80,21 +80,27 @@ describe("the public form says what is kept", () => {
 });
 
 describe("retention", () => {
-  it("deletes an undiscussed agenda entry whose week is more than 90 days old", async () => {
-    await addAgendaEntry(db, t.clergy, { displayName: "Old line" }, NOW);
-    expect((await purgeAgenda(db, new Date(NOW.getTime() + 80 * DAY))).deleted).toBe(0);
-    expect((await purgeAgenda(db, new Date(NOW.getTime() + 100 * DAY))).deleted).toBe(1);
+  // Daniel, 2026-11-25: "I want it all kept." What clergy wrote on the agenda is not cleared or deleted on a timer.
+  // The rows are stamped by the real clock, so the days are counted from it (a fixed date here went stale).
+  const after = (days: number) => runDailyJob({ db, now: new Date(Date.now() + days * DAY), owners: new Set(["owner@example.test"]), origin: null });
+
+  it("keeps an undiscussed agenda entry however old its week is: after 90 days, a year and five years", async () => {
+    await addAgendaEntry(db, t.clergy, { displayName: "Old line" });
+    for (const days of [80, 100, 365, 5 * 365]) {
+      expect((await after(days)).every((r) => r.ok)).toBe(true);
+      expect((await db.select().from(agendaEntries)).map((e) => e.displayName)).toEqual(["Old line"]);
+    }
+    // Still on the agenda to be discussed, carried or removed by a person.
+    expect((await listAgenda(db, t.clergy, new Date(Date.now() + 365 * DAY))).toDiscuss.map((e) => e.displayName)).toEqual(["Old line"]);
   });
 
-  it("clears the words of free-text and person-level entries older than 90 days", async () => {
-    await addAgendaEntry(db, t.clergy, { displayName: "Free line", why: "some words" }, NOW);
-    await addAgendaEntry(db, t.clergy, { sfContactId: CONTACT2, displayName: "Person line", why: "person words" }, NOW);
-    // The rows are stamped by the real clock, so the 90 days are counted from it (a fixed date here went stale).
-    const written = Date.now();
-    await purgeOldNotes(db, new Date(written + 60 * DAY));
-    expect((await db.select().from(agendaEntries)).every((e) => e.why !== null)).toBe(true);
-    await purgeOldNotes(db, new Date(written + 91 * DAY));
-    expect((await db.select().from(agendaEntries)).every((e) => e.why === null)).toBe(true);
+  it("keeps the words of free-text and person-level entries after 90 days, a year and five years", async () => {
+    await addAgendaEntry(db, t.clergy, { displayName: "Free line", why: "some words" });
+    await addAgendaEntry(db, t.clergy, { sfContactId: CONTACT2, displayName: "Person line", why: "person words" });
+    for (const days of [60, 91, 365, 5 * 365]) {
+      await after(days);
+      expect((await db.select().from(agendaEntries)).map((e) => e.why).sort()).toEqual(["person words", "some words"]);
+    }
   });
 
   it("counts reporter rows past 30 days (expected 0 once the job has run)", async () => {

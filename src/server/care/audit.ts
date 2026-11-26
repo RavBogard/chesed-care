@@ -135,7 +135,7 @@ export type AuditDetail = {
   journeyId?: string;
   templateKey?: string;
   count?: number;
-  /** The keep-notes flag after the change (care_item.keep_notes). */
+  /** The keep-notes flag after the change (care_item.keep_notes: no longer written; old rows remain). */
   keepNotes?: boolean;
   /** Names of the meal page fields that changed; never their values. */
   fields?: MealAuditField[];

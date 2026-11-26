@@ -1,9 +1,9 @@
 /**
  * Small daily tidying, counts only: capture tokens nobody has used for 180 days are
- * revoked; rate-limit counters past their window are deleted; and a check that no
- * decided proposal still holds its words (they are erased when it is decided).
+ * revoked; rate-limit counters past their window are deleted; and a count of senders'
+ * details kept past their 30 days. (A decided proposal keeps its words: Daniel, 2026-11-25.)
  */
-import { and, count, isNotNull, isNull, like, lt, lte, ne, not, or, sql } from "drizzle-orm";
+import { and, count, isNotNull, isNull, like, lt, lte, not, or, sql } from "drizzle-orm";
 import { REPORTER_KEEP_DAYS } from "@/server/care/reporter";
 import { captureTokens, mealRateLimits, proposals, suggestionDismissals } from "@/server/db/schema";
 import { DISMISS_KEEP_DAYS } from "@/server/care/suggestions";
@@ -48,14 +48,5 @@ export async function countStaleReporters(db: Db, now: Date): Promise<number> {
     .select({ n: count() })
     .from(proposals)
     .where(and(isNotNull(proposals.reporterEmail), lt(proposals.decidedAt, new Date(now.getTime() - REPORTER_KEEP_DAYS * DAY_MS))));
-  return row?.n ?? 0;
-}
-
-/** Decided proposals that still hold words: expected to be 0. Counted, never read. */
-export async function countDecidedWithWords(db: Db): Promise<number> {
-  const [row] = await db
-    .select({ n: count() })
-    .from(proposals)
-    .where(and(ne(proposals.status, "pending"), or(isNotNull(proposals.rawText), isNotNull(proposals.intake))));
   return row?.n ?? 0;
 }

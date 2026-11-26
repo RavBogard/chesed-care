@@ -3,7 +3,7 @@
 import type { ActionState } from "@/lib/action-state";
 import { fields, runAction, runData, type DataState } from "@/server/auth/action";
 import { getViewer } from "@/server/auth/session";
-import { setCorpsNote, setKeepNotes } from "@/server/care/care-items";
+import { setCorpsNote } from "@/server/care/care-items";
 import { completeLeadStep } from "@/server/care/follow-ups";
 import { setSummaryPref } from "@/server/daily/summary";
 import { endJourney, previewJourney, startJourney, type JourneyOptions, type JourneyPreview } from "@/server/journeys/journeys";
@@ -64,15 +64,6 @@ export async function setCorpsNoteAction(_prev: ActionState, form: FormData): Pr
   return runAction(await getViewer(), async (actor, db) => {
     const item = await setCorpsNote(db, actor, f.careItemId, f.corpsNote ?? "");
     return item.corpsNote ? "Saved." : "Cleared.";
-  });
-}
-
-export async function setKeepNotesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
-  const f = fields(form);
-  return runAction(await getViewer(), async (actor, db) => {
-    const keep = f.keep === "true";
-    await setKeepNotes(db, actor, f.careItemId, keep);
-    return keep ? "These notes will be kept." : "These notes follow the usual rule again.";
   });
 }
 

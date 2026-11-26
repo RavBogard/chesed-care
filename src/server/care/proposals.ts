@@ -3,8 +3,14 @@
  * clergy accept it. A clergy member's own capture is theirs to confirm and stays
  * out of the shared Inbox unless they release it.
  *
- * A proposal's raw text and reading are pastoral: never logged or audited, and
- * both cleared when the proposal is accepted or dismissed.
+ * A proposal's raw text and reading are pastoral: never logged or audited.
+ *
+ * Daniel, 2026-11-25: "When anyone writes, nothing should be refused. We want to maintain that
+ * information because that's useful for the rabbis to see." So the raw text (the words as they
+ * arrived) is KEPT when a proposal is accepted or dismissed. The reading (the AI's) and the intake
+ * (which holds a public sender's name and contact) are still cleared on the decision. The kept words
+ * are read only through src/server/care/original-reports.ts, by clergy who may; the functions here
+ * never hand them back for a decided proposal.
  */
 import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -95,16 +101,22 @@ export async function loadPending(db: Db, actor: Actor, id: unknown): Promise<Ro
   return row;
 }
 
-/** Decide a proposal once: a second decision (or a race) finds it no longer pending. */
-async function decide(db: Db, actor: Actor, row: Row, status: "accepted" | "dismissed", now: Date): Promise<Row> {
+/**
+ * Decide a proposal once: a second decision (or a race) finds it no longer pending. The words stay on the row;
+ * the reading and the intake are cleared. `wordsPrivate`: the words went into a note only the acceptor can read.
+ */
+async function decide(db: Db, actor: Actor, row: Row, status: "accepted" | "dismissed", now: Date, wordsPrivate = false): Promise<Row> {
   const [decided] = await db
     .update(proposals)
-    .set({ status, decidedBy: actor.id, decidedAt: now, rawText: null, reading: null, intake: null })
+    .set({ status, decidedBy: actor.id, decidedAt: now, reading: null, intake: null, wordsPrivate })
     .where(and(eq(proposals.id, row.id), eq(proposals.status, "pending")))
     .returning();
   if (!decided) throw new InvalidInput("status");
   return decided;
 }
+
+/** A decided proposal as its decider gets it back: without the words, which are kept on the row but returned only by original-reports.ts. */
+const decidedView = (row: Row): Proposal => view({ ...row, rawText: null }, null);
 
 /** The submitter moves their own capture to the shared Inbox. */
 export async function releaseToInbox(db: Db, actor: Actor, id: unknown): Promise<Proposal> {
@@ -127,7 +139,7 @@ export async function dismissProposal(db: Db, actor: Actor, id: unknown, now: Da
   return db.transaction(async (tx) => {
     const decided = await decide(tx, actor, row, "dismissed", now);
     await writeAudit(tx, actor, "proposal.dismiss", "proposal", row.id, { channel: row.channel });
-    return view(decided, null);
+    return decidedView(decided);
   });
 }
 
@@ -199,7 +211,9 @@ export async function acceptProposal(deps: PersonDeps, actor: Actor, id: unknown
   const fromList = storedIntake(row.intake)?.kind === "batch" && row.submittedBy === actor.id;
   const followUpInput: { title: string; dueDate: string; ownerUserId?: string } | undefined = d.followUp ?? (d.target.kind === "new" && d.lastContact && !d.journey ? { title: "Check in", dueDate: firstFollowUpDue(d.lastContact, chicagoToday(deps.now)) } : undefined);
   return db.transaction(async (tx) => {
-    const decided = await decide(tx, actor, row, "accepted", deps.now);
+    // The kept words follow the note they became: added to an existing item from a sensitive reading, that note is private to the acceptor, and so are the words.
+    // A rabbi's own capture is no different once accepted (Daniel, 2026-11-25): its words are read by every rabbi who sees the entry.
+    const decided = await decide(tx, actor, row, "accepted", deps.now, sensitive && d.target.kind === "existing");
     let item: CareItem;
     if (d.target.kind === "existing") {
       item = await loadVisibleCareItem(tx, actor, d.target.careItemId);
@@ -265,6 +279,6 @@ export async function acceptProposal(deps: PersonDeps, actor: Actor, id: unknown
     }
     const [linked] = await tx.update(proposals).set({ resultCareItemId: item.id, ...(reporterToKeep(row) ?? {}) }).where(eq(proposals.id, decided.id)).returning();
     await writeAudit(tx, actor, "proposal.accept", "proposal", row.id, { careItemId: item.id, channel: row.channel, target: d.target.kind, restricted: item.restricted });
-    return { proposal: view(linked, null), careItemId: item.id, person: item.displayName, followUpId, ...(miSheberach ? { miSheberach } : {}) };
+    return { proposal: decidedView(linked), careItemId: item.id, person: item.displayName, followUpId, ...(miSheberach ? { miSheberach } : {}) };
   });
 }

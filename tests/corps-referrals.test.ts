@@ -9,7 +9,7 @@ import type { Db } from "@/server/db/types";
 import { TOOLS } from "@/server/mcp/tools";
 import { callTool } from "@/server/mcp/transport";
 import { getCoordinatorHome } from "@/server/volunteers/home";
-import { closeReferral, createReferral, listOpenReferrals, purgeReferrals, referralsForPerson, REFERRALS_PER_HOUR, setReferralConsent, takeReferral, withdrawReferral, type ReferralInput } from "@/server/volunteers/referrals";
+import { closeReferral, createReferral, listOpenReferrals, lapseReferrals, referralsForPerson, REFERRALS_PER_HOUR, setReferralConsent, takeReferral, withdrawReferral, type ReferralInput } from "@/server/volunteers/referrals";
 import { ACCOUNT, addActor, CONTACT, CONTACT2, reporters, team, testDb } from "./support/db";
 import { NOW } from "./support/meals";
 import { fakeSf } from "./support/sf";
@@ -50,7 +50,7 @@ describe("who may do what", () => {
       await expect(closeReferral(db, a, id, { as: "done" }, NOW)).rejects.toBeInstanceOf(AccessDenied);
       await expect(withdrawReferral(db, a, id, NOW)).rejects.toBeInstanceOf(AccessDenied);
       await expect(setReferralConsent(db, a, id, "yes")).rejects.toBeInstanceOf(AccessDenied);
-      expect(await referralsForPerson(db, a, { sfContactId: CONTACT }, NOW)).toBeNull();
+      expect(await referralsForPerson(db, a, { sfContactId: CONTACT })).toBeNull();
     }
     expect(await db.select().from(corpsReferrals)).toHaveLength(1);
     expect((await db.select().from(corpsReferrals))[0]).toMatchObject({ takenBy: null, closedAt: null, consent: "yes" });
@@ -61,7 +61,7 @@ describe("who may do what", () => {
     await expect(refer(t.lead, { sfContactId: undefined, outsidePersonId: (await outside("Someone Else")).id })).rejects.toBeInstanceOf(AccessDenied);
     await expect(withdrawReferral(db, t.lead, id, NOW)).rejects.toBeInstanceOf(AccessDenied);
     await expect(setReferralConsent(db, t.lead, id, "yes")).rejects.toBeInstanceOf(AccessDenied);
-    expect(await referralsForPerson(db, t.lead, { sfContactId: CONTACT }, NOW)).toBeNull();
+    expect(await referralsForPerson(db, t.lead, { sfContactId: CONTACT })).toBeNull();
     for (const a of [t.owner, t.clergy, t.clergy2]) expect((await listOpenReferrals(db, a)).map((r) => r.id)).toEqual([id]);
     // Any rabbi may settle the consent or withdraw, not only the one who referred.
     await setReferralConsent(db, t.owner, id, "coordinator_asks");
@@ -144,7 +144,7 @@ describe("privacy", () => {
     for (const shut of [t.clergy2, t.owner]) {
       expect(await listOpenReferrals(db, shut)).toEqual([]);
       expect((await getCoordinatorHome(db, shut, NOW)).referrals).toEqual([]);
-      expect(await referralsForPerson(db, shut, { outsidePersonId: x.id }, NOW)).toEqual({ open: null, closed: [] });
+      expect(await referralsForPerson(db, shut, { outsidePersonId: x.id })).toEqual({ open: null, closed: [], olderClosed: 0 });
       await expect(refer(shut, { sfContactId: undefined, outsidePersonId: x.id })).rejects.toBeInstanceOf(NotFound);
       await expect(setReferralConsent(db, shut, id, "yes")).rejects.toBeInstanceOf(NotFound);
       await expect(takeReferral(db, shut, id, NOW)).rejects.toBeInstanceOf(NotFound);
@@ -153,11 +153,11 @@ describe("privacy", () => {
     }
     // The lead has no care access and keeps seeing the referral (no person link is made for them).
     expect((await listOpenReferrals(db, t.lead)).map((r) => r.name)).toEqual(["Hidden Hal"]);
-    expect((await referralsForPerson(db, t.clergy, { outsidePersonId: x.id }, NOW))?.open?.id).toBe(id);
+    expect((await referralsForPerson(db, t.clergy, { outsidePersonId: x.id }))?.open?.id).toBe(id);
     // Once it is closed the same holds for the history on the person's page.
     await withdrawReferral(db, t.clergy, id, NOW);
-    for (const shut of [t.clergy2, t.owner]) expect(await referralsForPerson(db, shut, { outsidePersonId: x.id }, NOW)).toEqual({ open: null, closed: [] });
-    expect((await referralsForPerson(db, t.clergy, { outsidePersonId: x.id }, NOW))?.closed).toHaveLength(1);
+    for (const shut of [t.clergy2, t.owner]) expect(await referralsForPerson(db, shut, { outsidePersonId: x.id })).toEqual({ open: null, closed: [], olderClosed: 0 });
+    expect((await referralsForPerson(db, t.clergy, { outsidePersonId: x.id }))?.closed).toHaveLength(1);
   });
 
   it("rule 4: while a rabbi asks first the lead learns nothing of it, by list, home or id; once a rabbi settles it, it is hers to take", async () => {
@@ -212,14 +212,14 @@ describe("taking and closing", () => {
     expect(await takeReferral(db, t.lead, id, at(2))).toEqual({ ok: true });
     expect((await listOpenReferrals(db, lead2))[0]).toMatchObject({ takenByName: "lead", takenAt: NOW, takenByMe: false, canTake: false });
     expect((await listOpenReferrals(db, t.lead))[0]).toMatchObject({ takenByMe: true, canTake: false });
-    expect((await referralsForPerson(db, t.clergy, { sfContactId: CONTACT }, NOW))?.open).toMatchObject({ id, kind: "meal", consent: "yes", takenByName: "lead" });
+    expect((await referralsForPerson(db, t.clergy, { sfContactId: CONTACT }))?.open).toMatchObject({ id, kind: "meal", consent: "yes", takenByName: "lead" });
 
     for (const other of [lead2, t.clergy, t.owner]) await expect(closeReferral(db, other, id, { as: "done" }, NOW)).rejects.toBeInstanceOf(AccessDenied);
     for (const bad of [{ as: "withdrawn" }, { as: "gone" }, { as: "done", outcomeLine: "o".repeat(201) }, { as: "done", outcomeLine: "one\ntwo" }]) await expect(closeReferral(db, t.lead, id, bad, NOW)).rejects.toBeInstanceOf(InvalidInput);
     await closeReferral(db, t.lead, id, { as: "done", outcomeLine: "Brought lasagne on Thursday" }, at(3));
     expect(await listOpenReferrals(db, t.lead)).toEqual([]);
     for (const a of [t.clergy, t.clergy2, t.owner]) {
-      expect(await referralsForPerson(db, a, { sfContactId: CONTACT }, at(3))).toEqual({ open: null, closed: [{ id, kind: "meal", closedAs: "done", closedAt: at(3), outcomeLine: "Brought lasagne on Thursday", contactLine: CONTACT_LINE, alreadyInvolved: INVOLVED, note: NOTE }] });
+      expect(await referralsForPerson(db, a, { sfContactId: CONTACT })).toEqual({ open: null, closed: [{ id, kind: "meal", closedAs: "done", closedAt: at(3), outcomeLine: "Brought lasagne on Thursday", contactLine: CONTACT_LINE, alreadyInvolved: INVOLVED, note: NOTE }], olderClosed: 0 });
     }
     // Closed is closed: nothing more can be done to it.
     await expect(closeReferral(db, t.lead, id, { as: "declined" }, at(4))).rejects.toBeInstanceOf(NotFound);
@@ -232,7 +232,7 @@ describe("taking and closing", () => {
     await expect(closeReferral(db, t.lead, id, { as: "declined" }, NOW)).rejects.toBeInstanceOf(AccessDenied);
     await takeReferral(db, t.owner, id, NOW);
     await closeReferral(db, t.owner, id, { as: "declined" }, at(1));
-    expect((await referralsForPerson(db, t.clergy, { sfContactId: CONTACT }, at(1)))?.closed).toEqual([{ id, kind: "meal", closedAs: "declined", closedAt: at(1), outcomeLine: null, contactLine: CONTACT_LINE, alreadyInvolved: INVOLVED, note: NOTE }]);
+    expect((await referralsForPerson(db, t.clergy, { sfContactId: CONTACT }))?.closed).toEqual([{ id, kind: "meal", closedAs: "declined", closedAt: at(1), outcomeLine: null, contactLine: CONTACT_LINE, alreadyInvolved: INVOLVED, note: NOTE }]);
     expect((await db.select().from(corpsReferrals))[0]).toMatchObject({ closedBy: t.owner.id, closedAs: "declined" });
   });
 
@@ -242,37 +242,51 @@ describe("taking and closing", () => {
     await withdrawReferral(db, t.clergy, id, at(1));
     expect(await listOpenReferrals(db, t.lead)).toEqual([]);
     await expect(closeReferral(db, t.lead, id, { as: "done" }, at(2))).rejects.toBeInstanceOf(NotFound);
-    expect((await referralsForPerson(db, t.owner, { sfContactId: CONTACT }, at(2)))?.closed).toMatchObject([{ closedAs: "withdrawn" }]);
+    expect((await referralsForPerson(db, t.owner, { sfContactId: CONTACT }))?.closed).toMatchObject([{ closedAs: "withdrawn" }]);
   });
 });
 
-describe("the daily purge", () => {
-  it("withdraws an open referral at 60 days and deletes a closed one 90 days after it was closed", async () => {
+describe("the daily job: closed referrals are kept (Daniel, 2026-11-25: \"I want it all kept\")", () => {
+  it("withdraws an open referral nobody took at 60 days, and deletes no closed referral after 90 days, a year or five", async () => {
     const { id } = await refer(t.clergy);
     const keep = await refer(t.clergy, { sfContactId: undefined, outsidePersonId: (await outside("Still Open")).id });
     await withdrawReferral(db, t.clergy, id, NOW);
-    expect(await purgeReferrals(db, at(59))).toEqual({ lapsed: 0, deleted: 0 });
+    expect(await lapseReferrals(db, at(59))).toEqual({ lapsed: 0 });
     // An open referral nobody took is withdrawn at 60 days; what was written stays.
     // One a coordinator has taken and is working is never lapsed.
     const working = await refer(t.owner, { sfContactId: undefined, outsidePersonId: (await outside("Being Helped")).id });
     await takeReferral(db, t.lead, working.id, NOW);
-    expect(await purgeReferrals(db, at(60))).toEqual({ lapsed: 1, deleted: 0 });
+    expect(await lapseReferrals(db, at(60))).toEqual({ lapsed: 1 });
     expect((await listOpenReferrals(db, t.lead)).map((r) => r.id)).toEqual([working.id]);
-    await closeReferral(db, t.lead, working.id, { as: "done" }, at(60));
+    await closeReferral(db, t.lead, working.id, { as: "done", outcomeLine: "Soup on Thursday" }, at(60));
     expect((await db.select().from(corpsReferrals).where(eq(corpsReferrals.id, keep.id)))[0]).toMatchObject({ closedAs: "withdrawn", closedBy: null, contactLine: CONTACT_LINE, alreadyInvolved: INVOLVED, note: NOTE });
     expect(await listOpenReferrals(db, t.lead)).toEqual([]);
-    expect(await purgeReferrals(db, at(89))).toEqual({ lapsed: 0, deleted: 0 });
-    // The person's page stops showing it at the same moment the purge takes it.
-    expect((await referralsForPerson(db, t.clergy, { sfContactId: CONTACT }, at(89)))?.closed).toHaveLength(1);
-    expect(await purgeReferrals(db, at(90))).toEqual({ lapsed: 0, deleted: 1 });
-    // The two closed on day 60 (one lapsed, one done) are still kept; they go 90 days after that.
-    expect((await db.select().from(corpsReferrals)).map((r) => r.id).sort()).toEqual([keep.id, working.id].sort());
-    expect(await purgeReferrals(db, at(400))).toEqual({ lapsed: 0, deleted: 2 });
+    const task = DAILY_TASKS.find((x) => x.key === "corps_referral_lapse")!;
+    for (const days of [90, 91, 365, 5 * 365, 10 * 365]) {
+      expect(await task.run({ db, now: at(days), owners: new Set(), origin: null })).toEqual({ lapsed: 0 });
+      expect((await db.select().from(corpsReferrals)).map((r) => r.id).sort()).toEqual([id, keep.id, working.id].sort());
+    }
+    // The outcome line the coordinator left is still there, and the person's page still shows the old referral.
+    expect((await db.select().from(corpsReferrals).where(eq(corpsReferrals.id, working.id)))[0].outcomeLine).toBe("Soup on Thursday");
+    expect((await referralsForPerson(db, t.clergy, { sfContactId: CONTACT }))?.closed.map((c) => c.id)).toEqual([id]);
   });
 
-  it("runs in the daily job, before the reminders that must stay last", () => {
+  it("a person's page shows the five most recent closed referrals, newest first, and counts the older ones", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const { id } = await refer(t.clergy);
+      await withdrawReferral(db, t.clergy, id, at(i));
+      ids.push(id);
+    }
+    const page = await referralsForPerson(db, t.clergy, { sfContactId: CONTACT });
+    expect(page?.closed.map((c) => c.id)).toEqual(ids.slice(2).reverse());
+    expect(page?.olderClosed).toBe(2);
+  });
+
+  it("runs in the daily job, before the reminders that must stay last, under a name that says what it does", () => {
     const keys = DAILY_TASKS.map((x) => x.key);
-    expect(keys).toContain("corps_referral_purge");
+    expect(keys).toContain("corps_referral_lapse");
+    expect(keys).not.toContain("corps_referral_purge");
     expect(keys.at(-1)).toBe("helper_reminders");
   });
 });
@@ -335,24 +349,24 @@ describe("the review's fixes", () => {
       const seen = await listOpenReferrals(db, other);
       expect(seen[0].referredByName).toBe("A rabbi");
       expect(JSON.stringify(seen)).not.toContain(t.clergy.id);
-      expect(JSON.stringify(await referralsForPerson(db, other, { sfContactId: CONTACT }, NOW))).not.toMatch(/clergy@|"clergy"/);
+      expect(JSON.stringify(await referralsForPerson(db, other, { sfContactId: CONTACT }))).not.toMatch(/clergy@|"clergy"/);
     }
   });
 
-  it("nothing written is erased when a referral closes: the rabbis read all of it on the person's page until the purge, and the lead no longer has it", async () => {
+  it("nothing written is erased when a referral closes: the rabbis read all of it on the person's page, and the lead no longer has it", async () => {
     const a = await refer(t.clergy);
     await takeReferral(db, t.lead, a.id, NOW);
     await closeReferral(db, t.lead, a.id, { as: "done", outcomeLine: "Soup on Thursday" }, NOW);
     const b = await refer(t.clergy, {}, at(1));
     await withdrawReferral(db, t.clergy, b.id, at(1));
     for (const who of [t.clergy, t.clergy2, t.owner]) {
-      const closed = (await referralsForPerson(db, who, { sfContactId: CONTACT }, at(2)))!.closed;
+      const closed = (await referralsForPerson(db, who, { sfContactId: CONTACT }))!.closed;
       expect(closed).toHaveLength(2);
       for (const c of closed) expect(c).toMatchObject({ contactLine: CONTACT_LINE, alreadyInvolved: INVOLVED, note: NOTE });
       expect(closed.map((c) => c.outcomeLine).sort()).toEqual(["Soup on Thursday", null].sort());
     }
     expect(await listOpenReferrals(db, t.lead)).toEqual([]);
-    expect(await referralsForPerson(db, t.lead, { sfContactId: CONTACT }, at(2))).toBeNull();
+    expect(await referralsForPerson(db, t.lead, { sfContactId: CONTACT })).toBeNull();
   });
 
   it("the rabbi decides what the coordinator needs to know: no word is refused in a line", async () => {

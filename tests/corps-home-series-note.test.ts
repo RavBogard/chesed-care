@@ -5,7 +5,7 @@ import { actorOrRedirect } from "@/server/auth/page-actor";
 import { closeCareItem, createCareItem, setCorpsNote, updateCareItem } from "@/server/care/care-items";
 import { listLeadSteps } from "@/server/care/follow-ups";
 import { InvalidInput, NotFound } from "@/server/care/validate";
-import { purgeOldNotes } from "@/server/daily/retention";
+import { runDailyJob } from "@/server/daily/run";
 import { auditLog, careItems, mealRateLimits, mealSignups, volunteerClaims, volunteerTaskBlocks, volunteerTasks } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { startJourney } from "@/server/journeys/journeys";
@@ -72,7 +72,7 @@ describe("the clergy note for Mitzvah Corps", () => {
     for (const a of [t.clergy, t.staff, t.senior]) expect(await listLeadSteps(db, a, NOW)).toEqual([]);
   });
 
-  it("the retention purge clears it, and the audit holds ids only", async () => {
+  it("the daily job keeps it however long ago the item closed, and the audit holds ids only", async () => {
     const i = await item();
     await setCorpsNote(db, t.clergy, i.id, NOTE);
     const audit = await db.select().from(auditLog).where(eq(auditLog.action, "care_item.corps_note"));
@@ -80,8 +80,9 @@ describe("the clergy note for Mitzvah Corps", () => {
     expect(JSON.stringify(audit)).not.toContain("Meals on Tuesday");
     expect(audit[0].detail).toEqual({ careItemId: i.id });
     await closeCareItem(db, t.clergy, i.id, new Date("2023-01-01T00:00:00Z"));
-    await purgeOldNotes(db, NOW);
-    expect((await db.select().from(careItems).where(eq(careItems.id, i.id)))[0]).toMatchObject({ corpsNote: null, summary: null });
+    const before = (await db.select().from(careItems).where(eq(careItems.id, i.id)))[0];
+    await runDailyJob({ db, now: NOW, owners: new Set(["owner@example.test"]), origin: null });
+    expect((await db.select().from(careItems).where(eq(careItems.id, i.id)))[0]).toMatchObject({ corpsNote: NOTE, summary: before.summary, notesPurgedAt: null });
   });
 });
 

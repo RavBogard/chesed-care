@@ -11,6 +11,7 @@ import {
   CONSENT_LINES,
   CONSENT_NOW,
   PAST_REFERRALS,
+  olderReferralsWords,
   REFER_HELP,
   REFER_INTRO,
   REFER_LABEL,
@@ -104,11 +105,11 @@ function ReferForm({ person }: { person: ReferralRef }) {
 
 /**
  * On a person's page, for clergy: the open referral with its state and a way to withdraw it, or the short form to
- * refer them; then the referrals closed in the last 90 days with the line the coordinator left.
+ * refer them; then their closed referrals (the most recent five, and a count of any older) with the line the coordinator left.
  */
 export function PersonReferral({ state, person }: { state: PersonReferrals | null; person: ReferralRef }) {
   if (state === null) return null;
-  const { open, closed } = state;
+  const { open, closed, olderClosed } = state;
   return (
     <Section title={REFER_SECTION}>
       {open ? (
@@ -145,6 +146,11 @@ export function PersonReferral({ state, person }: { state: PersonReferrals | nul
               </li>
             ))}
           </ul>
+          {olderClosed > 0 ? (
+            <p className="mt-1 text-sm text-rubric" data-testid="referral-older">
+              {olderReferralsWords(olderClosed)}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </Section>

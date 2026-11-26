@@ -110,13 +110,13 @@ describe("the Inbox", () => {
 });
 
 describe("accepting", () => {
-  it("opens a new care item with the final values and a first follow-up, in the name Salesforce gives, and clears the raw text", async () => {
+  it("opens a new care item with the final values and a first follow-up, in the name Salesforce gives; the row keeps the raw text and the acceptor's result does not carry it", async () => {
     const p = await createProposal(db, r.staff, { rawText: RAW, channel: "staff", reading });
     const accepted = await acceptProposal(deps, t.clergy, p.id, { ...newItem, location: "Barnes, room 4", learnedFrom: "Her daughter rang the office", ownerUserId: t.clergy2.id, followUp: { title: "Visit Ruth", dueDate: "2026-11-24" } });
     const item = await getCareItem(db, t.owner, accepted.careItemId);
     expect(item).toMatchObject({ sfContactId: CONTACT, sfAccountId: ACCOUNT, displayName: "Ruth Cohen", category: "illness", status: "new", summary: SUMMARY, location: "Barnes, room 4", learnedFrom: "Her daughter rang the office", source: "staff", restricted: false, ownerUserId: t.clergy2.id, createdBy: t.clergy.id });
     expect(await listFollowUps(db, t.clergy, { careItemId: item.id })).toMatchObject([{ id: accepted.followUpId, title: "Visit Ruth", dueDate: "2026-11-24", ownerUserId: t.clergy2.id, sfContactId: CONTACT, displayName: "Ruth Cohen", createdBy: t.clergy.id }]);
-    expect(await row(p.id)).toMatchObject({ status: "accepted", decidedBy: t.clergy.id, decidedAt: NOW, resultCareItemId: item.id, rawText: null, reading: null });
+    expect(await row(p.id)).toMatchObject({ status: "accepted", decidedBy: t.clergy.id, decidedAt: NOW, resultCareItemId: item.id, rawText: RAW, reading: null, intake: null });
     expect(accepted.proposal).toMatchObject({ status: "accepted", rawText: null, reading: null, resultCareItemId: item.id });
     expect(await inbox(t.clergy)).toEqual([]);
     // Decided once: neither a second accept nor a dismissal reaches it.
@@ -143,7 +143,7 @@ describe("accepting", () => {
     // A report is not contact with the person: the item is still new, and still what it was.
     expect(await getCareItem(db, t.clergy, existing.id)).toMatchObject({ status: "new", source: "clergy", summary: null, ownerUserId: t.clergy2.id });
     expect(await listFollowUps(db, t.clergy, { careItemId: existing.id })).toMatchObject([{ title: "Ring her daughter", ownerUserId: t.clergy2.id }]);
-    expect(await row(p.id)).toMatchObject({ status: "accepted", resultCareItemId: existing.id, rawText: null, reading: null });
+    expect(await row(p.id)).toMatchObject({ status: "accepted", resultCareItemId: existing.id, rawText: RAW, reading: null });
   });
 
   it("creates an outside person, or uses one, when the person is not in Salesforce", async () => {
@@ -196,19 +196,21 @@ describe("accepting", () => {
     expect(JSON.stringify([await db.select().from(careItems), await db.select().from(outsidePeople)])).toBe(baseline);
     expect([await db.select().from(followUps), await db.select().from(contactLog), await db.select().from(auditLog).where(eq(auditLog.action, "proposal.accept"))]).toEqual([[], [], []]);
     expect(await row(p.id)).toMatchObject({ status: "pending", rawText: RAW, decidedBy: null, resultCareItemId: null });
-    // The words of every decided proposal are gone, both ways of holding them.
+    // A decided proposal keeps the words as they arrived (Daniel, 2026-11-25) and loses the reading: the reading's own words are gone.
     const kept = await createProposal(db, t.clergy, { rawText: RAW, channel: "connector", reading, reviewScope: "clergy" });
     await acceptProposal(deps, t.clergy2, kept.id, { target: { kind: "existing", careItemId: open.id }, summary: SUMMARY });
-    expect(words((await db.select().from(proposals)).filter((x) => x.status !== "pending"))).not.toMatch(/Barnes|shaken|Fell/);
+    const decided = (await db.select().from(proposals)).filter((x) => x.status !== "pending");
+    expect(decided.map((x) => [x.rawText, x.reading, x.intake])).toEqual([[RAW, null, null]]);
+    expect(words(decided.map((x) => ({ ...x, rawText: null })))).not.toMatch(/Barnes|shaken|Fell/);
   });
 });
 
 describe("dismissing", () => {
-  it("clears the raw text and takes it out of the Inbox, with no care record", async () => {
+  it("keeps the raw text on the row, clears the reading, and takes it out of the Inbox, with no care record", async () => {
     const p = await createProposal(db, r.staff, { rawText: RAW, channel: "staff", reading });
     expect((await row(p.id)).reading).toEqual(reading);
     expect(await dismissProposal(db, t.clergy2, p.id, NOW)).toMatchObject({ status: "dismissed", rawText: null, reading: null });
-    expect(await row(p.id)).toMatchObject({ status: "dismissed", decidedBy: t.clergy2.id, decidedAt: NOW, rawText: null, reading: null, resultCareItemId: null });
+    expect(await row(p.id)).toMatchObject({ status: "dismissed", decidedBy: t.clergy2.id, decidedAt: NOW, rawText: RAW, reading: null, resultCareItemId: null });
     expect(await inbox(t.clergy)).toEqual([]);
     expect(await db.select().from(careItems)).toEqual([]);
     await expect(acceptProposal(deps, t.clergy, p.id, newItem)).rejects.toBeInstanceOf(InvalidInput);
@@ -241,7 +243,7 @@ describe("my reports", () => {
       expect(m.createdOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
     const text = JSON.stringify(mine);
-    for (const leak of ["Ruth", "Barnes", SUMMARY, "illness", "mental_health", CONTACT, item.careItemId, "More from the family"]) expect(text).not.toContain(leak);
+    for (const leak of ["Ruth", "Barnes", "shaken", SUMMARY, "illness", "mental_health", CONTACT, item.careItemId, "More from the family"]) expect(text).not.toContain(leak);
     // Each reporter has their own list; a caregiver's works the same way.
     expect(await listMyReports(db, r.lead)).toHaveLength(1);
     expect(await listMyReports(db, r.senior)).toEqual([]);

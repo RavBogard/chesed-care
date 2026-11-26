@@ -686,7 +686,9 @@ describe("v2: capture, the Inbox and the care record through the connector", () 
     expect(JSON.stringify(accepted)).not.toContain("Fell");
     expect(await getCareItem(db, t.clergy, accepted.careItemId as string)).toMatchObject({ source: "connector", status: "new", summary: "Fell at home; in hospital", location: "Barnes", sfAccountId: ACCOUNT, displayName: "Ruth Cohen", ownerUserId: t.clergy.id });
     expect(await listFollowUps(db, t.clergy, { careItemId: accepted.careItemId as string })).toMatchObject([{ id: accepted.followUpId, title: "Visit Ruth", dueDate: "2026-11-24" }]);
-    expect((await db.select().from(proposals))[0]).toMatchObject({ status: "accepted", rawText: null, resultCareItemId: accepted.careItemId });
+    // The words stay on the row for the rabbis (Daniel, 2026-11-25); the connector does not hand them back.
+    expect((await db.select().from(proposals))[0]).toMatchObject({ status: "accepted", rawText: TEXT, reading: null, resultCareItemId: accepted.careItemId });
+    expect(words(accepted)).not.toMatch(/quite shaken|daughter rang/);
     expect((await ok(t.clergy, "care_inbox")).proposals).toEqual([]);
     expect(await refused(t.clergy, "care_accept_proposal", { proposalId: captured.proposalId, contactId: CONTACT, category: "illness" })).toBe("Please check the values and try again.");
   });
@@ -731,7 +733,8 @@ describe("v2: capture, the Inbox and the care record through the connector", () 
     expect(await db.select().from(careItems)).toHaveLength(1);
     expect(await listContactEntries(db, t.clergy, { careItemId: existing.id })).toMatchObject([{ kind: "other", note: "Fell at home; in hospital", authorUserId: t.clergy.id }]);
     expect(await ok(t.clergy2, "care_dismiss_proposal", { proposalId: second.proposalId })).toEqual({ dismissed: true, proposalId: second.proposalId });
-    expect((await db.select().from(proposals)).map((p) => [p.status, p.rawText]).sort()).toEqual([["accepted", null], ["dismissed", null]]);
+    expect(words(added)).not.toMatch(/quite shaken|daughter rang/);
+    expect((await db.select().from(proposals)).map((p) => [p.status, p.rawText, p.reading]).sort()).toEqual([["accepted", TEXT, null], ["dismissed", "Another thing", null]]);
     expect((await db.select().from(auditLog)).map((a) => a.action).sort()).toEqual(["proposal.accept", "proposal.dismiss"]);
   });
 

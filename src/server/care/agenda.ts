@@ -7,12 +7,12 @@
  *
  * `why` and `outcome` are free text: never logged, never in an audit row (ids only).
  */
-import { and, asc, eq, inArray, gte, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, asc, eq, inArray, gte, isNull, or } from "drizzle-orm";
 import { addDays, chicagoToday, DAY_MS } from "@/server/lifecycle/window";
 import { agendaEntryVisibleWhere, canAddAgendaForItem, canUseAgenda, deny, type Actor } from "@/server/access/policy";
 import { agendaEntries, careItems, users } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
-import { auditRestrictedReadsByItem, writeAudit, writeSystemAudit } from "./audit";
+import { auditRestrictedReadsByItem, writeAudit } from "./audit";
 import { loadVisibleCareItemAccess } from "./care-items";
 import { createFollowUp } from "./follow-ups";
 import { personSubject } from "./outside-people";
@@ -21,9 +21,8 @@ import { dateField, InvalidInput, isUuid, NotFound, optionalText, text, uuidFiel
 export const WHY_MAX = 200;
 export const OUTCOME_MAX = 200;
 export const FREE_TEXT_MAX = 120;
-/** A discussed entry stays on the screen this long, and in the database this long. */
+/** A discussed entry stays on the screen this long. It stays in the database: nothing deletes agenda entries or their words on a timer (Daniel, 2026-11-25: "I want it all kept"). */
 export const DISCUSSED_SHOW_DAYS = 14;
-export const DISCUSSED_KEEP_DAYS = 90;
 
 type Row = typeof agendaEntries.$inferSelect;
 export type AgendaEntry = Row & { addedByName: string | null; discussedByName: string | null; restricted: boolean };
@@ -135,23 +134,9 @@ export async function carryAgendaEntry(db: Db, actor: Actor, id: unknown, now: D
   await writeAudit(db, actor, "agenda.carry", "agenda_entry", row.id, { careItemId: row.careItemId });
 }
 
-/** Take an entry off the agenda: whoever added it, or the owner. */
+/** Take an entry off the agenda: any rabbi who can see it (Daniel, 2026-11-25: entries are no longer deleted on a timer, so an old one must not wait for whoever added it). */
 export async function removeAgendaEntry(db: Db, actor: Actor, id: unknown): Promise<void> {
   const row = await loadVisibleEntry(db, actor, id);
-  if (row.addedBy !== actor.id && actor.role !== "owner") deny();
   await db.delete(agendaEntries).where(eq(agendaEntries.id, row.id));
   await writeAudit(db, actor, "agenda.remove", "agenda_entry", row.id, { careItemId: row.careItemId });
-}
-
-/** The daily job: entries discussed more than 90 days ago are deleted. No actor, counts only. */
-export async function purgeAgenda(db: Db, now: Date): Promise<{ deleted: number }> {
-  const cutoff = new Date(now.getTime() - DISCUSSED_KEEP_DAYS * DAY_MS);
-  // Discussed more than 90 days ago, or never discussed and for a week more than 90 days past.
-  const staleWeek = addDays(chicagoToday(now), -DISCUSSED_KEEP_DAYS);
-  const gone = await db
-    .delete(agendaEntries)
-    .where(or(and(isNotNull(agendaEntries.discussedAt), lt(agendaEntries.discussedAt, cutoff)), and(isNull(agendaEntries.discussedAt), lt(agendaEntries.weekOf, staleWeek))))
-    .returning({ id: agendaEntries.id });
-  if (gone.length > 0) await writeSystemAudit(db, "agenda.purge", "agenda_entry", gone[0].id, { count: gone.length });
-  return { deleted: gone.length };
 }

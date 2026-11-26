@@ -34,7 +34,7 @@ export default async function AgendaPage() {
   const list = (entries: AgendaView["toDiscuss"]) => (
     <ul className="mt-2 flex flex-col gap-3">
       {entries.map((e) => (
-        <AgendaEntryRow key={e.id} e={e} holders={holders} actorId={actor.id} canRemove={e.addedBy === actor.id || actor.role === "owner"} />
+        <AgendaEntryRow key={e.id} e={e} holders={holders} actorId={actor.id} canRemove />
       ))}
     </ul>
   );

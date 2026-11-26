@@ -28,7 +28,7 @@ export type PracticalRequest = {
   takenByMe: boolean;
 };
 
-/** The practical requests the actor may see, oldest first. A request whose words are gone is left out. */
+/** The practical requests the actor may see, oldest first. Only pending requests (practicalRequestVisibleWhere); one without its details or words is left out. */
 export async function listPracticalRequests(db: Db, actor: Actor): Promise<PracticalRequest[]> {
   if (!canSeePracticalRequests(actor)) deny();
   const rows = await db

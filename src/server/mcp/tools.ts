@@ -424,7 +424,7 @@ export const TOOLS: readonly Tool[] = [
   tool({
     name: "care_dismiss_proposal",
     title: "Dismiss a proposal",
-    description: "Dismiss a proposal that should not become a care item (a duplicate, a mistake). Its text is erased. Clergy only. Confirm with the person first.",
+    description: "Dismiss a proposal that should not become a care item (a duplicate, a mistake). Clergy only. Confirm with the person first.",
     input: z.strictObject({ proposalId }),
     annotations: CHANGE,
     async run(deps, input) {

@@ -139,9 +139,10 @@ describe("quick capture, then the decision sheet", () => {
     const [item] = await listCareItems(db, t.clergy, { sfContactId: CONTACT });
     expect(item).toMatchObject({ category: "illness", summary: "Broke her hip", location: "Barnes-Jewish, room 4", learnedFrom: "Her daughter", restricted: true, restrictedShowsCarer: false, status: "new", source: "capture" });
     expect(await db.select().from(followUps).where(eq(followUps.careItemId, item.id))).toHaveLength(1);
-    // It was decided once: the words are gone.
+    // It was decided once: the words stay on the row for the rabbis (Daniel, 2026-11-25).
     const [after] = await db.select().from(proposals).where(eq(proposals.id, captured.data.id));
-    expect(after).toMatchObject({ status: "accepted", rawText: null });
+    expect(after).toMatchObject({ status: "accepted", reading: null });
+    expect(after.rawText).toEqual(expect.any(String));
   });
 
   it("someone not in the directory is added by the decision itself, and 'Add to' an existing item writes a note on it", async () => {

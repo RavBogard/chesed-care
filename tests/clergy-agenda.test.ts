@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { AccessDenied, type Actor } from "@/server/access/policy";
-import { addAgendaEntry, carryAgendaEntry, discussAgendaEntry, listAgenda, mondayOf, purgeAgenda, removeAgendaEntry } from "@/server/care/agenda";
+import { addAgendaEntry, carryAgendaEntry, discussAgendaEntry, listAgenda, mondayOf, removeAgendaEntry } from "@/server/care/agenda";
 import { createCareItem } from "@/server/care/care-items";
 import { listFollowUps } from "@/server/care/follow-ups";
 import { InvalidInput, NotFound } from "@/server/care/validate";
-import { purgeOldNotes } from "@/server/daily/retention";
+import { runDailyJob } from "@/server/daily/run";
 import { agendaEntries, auditLog, careItems } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { TOOLS } from "@/server/mcp/tools";
@@ -120,11 +120,13 @@ describe("agenda: discuss, carry, follow-up", () => {
     expect((await listAgenda(db, t.clergy, new Date(NOW.getTime() + 7 * DAY))).toDiscuss).toHaveLength(1);
   });
 
-  it("only its adder or the owner removes an entry", async () => {
+  it("any rabbi who sees an entry removes it, not only whoever added it; nobody outside the clergy can", async () => {
     const { id } = await addAgendaEntry(db, t.clergy, { displayName: "A line to remove" }, NOW);
-    await expect(removeAgendaEntry(db, t.clergy2, id)).rejects.toBeInstanceOf(AccessDenied);
-    await removeAgendaEntry(db, t.owner, id);
+    for (const a of [t.carer, r.staff, r.lead, r.senior]) await expect(removeAgendaEntry(db, a, id)).rejects.toBeInstanceOf(AccessDenied);
+    expect((await listAgenda(db, t.clergy, NOW)).toDiscuss).toHaveLength(1);
+    await removeAgendaEntry(db, t.clergy2, id);
     expect((await listAgenda(db, t.clergy, NOW)).toDiscuss).toHaveLength(0);
+    await expect(removeAgendaEntry(db, t.owner, id)).rejects.toBeInstanceOf(NotFound);
   });
 
   it("computes the Monday of a week", () => {
@@ -134,25 +136,28 @@ describe("agenda: discuss, carry, follow-up", () => {
   });
 });
 
-describe("agenda: retention", () => {
-  it("drops a discussed entry off the screen after 14 days and deletes it after 90; audit rows hold ids only", async () => {
+describe("agenda: nothing is deleted on a timer (Daniel, 2026-11-25: \"I want it all kept\")", () => {
+  const job = (at: Date) => runDailyJob({ db, now: at, owners: new Set(["owner@example.test"]), origin: null });
+
+  it("a discussed entry drops off the screen after 14 days and stays in the database, words and all, after 90 days, a year and five", async () => {
     const { id } = await addAgendaEntry(db, t.clergy, { displayName: "Old business", why: "private words" }, NOW);
     await discussAgendaEntry(db, t.clergy, id, { outcome: "done" }, NOW);
     expect((await listAgenda(db, t.clergy, new Date(NOW.getTime() + 13 * DAY))).discussed).toHaveLength(1);
     expect((await listAgenda(db, t.clergy, new Date(NOW.getTime() + 15 * DAY))).discussed).toHaveLength(0);
-    expect((await purgeAgenda(db, new Date(NOW.getTime() + 89 * DAY))).deleted).toBe(0);
-    expect((await purgeAgenda(db, new Date(NOW.getTime() + 91 * DAY))).deleted).toBe(1);
-    expect(await db.select().from(agendaEntries)).toHaveLength(0);
+    for (const days of [91, 365, 5 * 365]) {
+      expect((await job(new Date(NOW.getTime() + days * DAY))).every((r) => r.ok)).toBe(true);
+      expect(await db.select().from(agendaEntries)).toMatchObject([{ id, displayName: "Old business", why: "private words", outcome: "done" }]);
+    }
     expect(words(JSON.stringify(await db.select().from(auditLog)))).not.toMatch(/private words|Old business/);
   });
 
-  it("clears an entry's words with the care item's notes", async () => {
+  it("an entry about a care item keeps its words however long ago the item closed", async () => {
     const item = await openItem();
     await addAgendaEntry(db, t.clergy, { careItemId: item.id, why: "words about the case" }, NOW);
     await db.update(careItems).set({ status: "closed", closedAt: new Date(NOW.getTime() - 4 * 365 * DAY) }).where(eq(careItems.id, item.id));
-    await purgeOldNotes(db, NOW);
+    for (const days of [1, 365, 5 * 365]) await job(new Date(NOW.getTime() + days * DAY));
     const [row] = await db.select().from(agendaEntries);
-    expect(row.why).toBeNull();
+    expect(row.why).toBe("words about the case");
   });
 });
 

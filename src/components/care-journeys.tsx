@@ -1,13 +1,12 @@
-import { endJourneyAction, setKeepNotesAction, startJourneyAction } from "@/app/journey-actions";
-import { instantDate, shortDate } from "@/lib/format";
-import { notesDeleteOn } from "@/server/daily/retention";
+import { endJourneyAction, startJourneyAction } from "@/app/journey-actions";
+import { shortDate } from "@/lib/format";
 import type { CareItem } from "@/server/care/care-items";
 import type { JourneyChoice, JourneyView } from "@/server/journeys/journeys";
 import { ActionForm } from "./action-form";
 import { ConfirmAction } from "./confirm-sheet";
 import { JourneyPicker } from "./journey-picker";
 import { Sheet } from "./sheet";
-import { btnLaptopNatural, btnPrimary, btnQuiet, rubric } from "./ui";
+import { btnLaptopNatural, btnPrimary, rubric } from "./ui";
 
 /**
  * The journeys running on one care item: the name, the next step and its day, what a
@@ -72,38 +71,5 @@ export function StartJourney({ item, who, choices, running, today }: { item: Car
         </button>
       </ActionForm>
     </Sheet>
-  );
-}
-
-/**
- * On a closed item: when its note text will be deleted (three years after closing), and
- * "Keep these notes" for clergy who fully see it. The fact of care itself is always kept.
- */
-export function NotesRetention({ item, manage }: { item: CareItem; manage: boolean }) {
-  const due = notesDeleteOn(item);
-  const line = item.notesPurgedAt
-    ? `Notes deleted ${instantDate(item.notesPurgedAt)}. The record of care is kept.`
-    : item.keepNotes
-      ? "Notes kept: they will not be deleted."
-      : due
-        ? `Notes will be deleted ${instantDate(due)}, three years after closing.`
-        : null;
-  if (!line) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="notes-retention">
-      <span className="text-sm text-rubric">{line}</span>
-      {manage && !item.notesPurgedAt ? (
-        <ActionForm action={setKeepNotesAction} showOk={false}>
-          <input type="hidden" name="careItemId" value={item.id} />
-          <input type="hidden" name="keep" value={item.keepNotes ? "false" : "true"} />
-          <button type="submit" className={btnQuiet} aria-describedby={`keep-${item.id}`}>
-            {item.keepNotes ? "Stop keeping these notes" : "Keep these notes"}
-          </button>
-          <span id={`keep-${item.id}`} className="mt-1 block text-sm text-rubric">
-            {item.keepNotes ? "They will then be deleted three years after closing, like any other." : "For notes that matter for the long term: they are never deleted."}
-          </span>
-        </ActionForm>
-      ) : null}
-    </div>
   );
 }

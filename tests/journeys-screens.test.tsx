@@ -18,7 +18,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", async (orig) => ({ ...(await orig<object>()), useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn(), back: vi.fn() }), usePathname: () => "/", redirect: (to: string) => { throw new Error(`redirect:${to}`); } }));
 vi.mock("@/server/salesforce", () => ({ getSalesforce: () => ({ query: async () => [] }) }));
 
-import { completeLeadStepAction, saveJourneyTemplateAction, setKeepNotesAction, setSummaryPrefAction, startJourneyAction } from "@/app/journey-actions";
+import * as journeyActions from "@/app/journey-actions";
+import { completeLeadStepAction, saveJourneyTemplateAction, setSummaryPrefAction, startJourneyAction } from "@/app/journey-actions";
 import { acceptProposalAction } from "@/app/inbox-actions";
 import ReportPage from "@/app/report/page";
 import { settingsAndAdmin } from "./support/settings";
@@ -212,7 +213,7 @@ describe("Settings: journeys, the morning summary, the daily job", () => {
     expect((reset.steps as unknown[]).length).toBe(4);
   });
 
-  it("each person saves their own summary choice; keep-notes is set from a closed item", async () => {
+  it("each person saves their own summary choice; a closed item offers no keep-notes switch and says nothing of deleting notes", async () => {
     as(r.staff);
     expect(await setSummaryPrefAction(IDLE, formData({ summaryPref: "push" }))).toMatchObject({ status: "ok" });
     expect((await db.select().from(users).where(eq(users.id, r.staff.id)))[0].summaryPref).toBe("push");
@@ -220,13 +221,17 @@ describe("Settings: journeys, the morning summary, the daily job", () => {
 
     const item = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth Cohen", category: "illness" });
     await db.update(careItems).set({ status: "closed", closedAt: new Date("2026-01-01T12:00:00Z") }).where(eq(careItems.id, item.id));
-    as(t.clergy2);
-    expect(await setKeepNotesAction(IDLE, formData({ careItemId: item.id, keep: "true" }))).toMatchObject({ status: "ok" });
-    as(t.carer);
-    expect(await setKeepNotesAction(IDLE, formData({ careItemId: item.id, keep: "false" }))).toMatchObject({ status: "error" });
-    const closed = await getCareItem(db, t.clergy, item.id);
-    expect(closed.keepNotes).toBe(true);
-    const view = { today: "2026-11-25", name: "Ruth Cohen", careItems: [closed], restrictedCare: [], followUps: [], contacts: [], team: [], access: {} };
-    expect(await html(<PersonCare view={view} actor={t.clergy} />)).toContain('data-testid="notes-retention"');
+    // The switch is gone with the three-year purge it switched off (Daniel, 2026-11-25): no action, no control, no wording.
+    expect(Object.keys(journeyActions)).not.toContain("setKeepNotesAction");
+    // Whatever the old columns hold: a closed item, one once marked keep, one un-kept, one the old purge cleared.
+    for (const old of [{ keepNotes: false }, { keepNotes: true }, { notesUnkeptAt: new Date("2026-02-01T12:00:00Z") }, { notesPurgedAt: new Date("2026-03-01T12:00:00Z") }]) {
+      await db.update(careItems).set(old).where(eq(careItems.id, item.id));
+      const closed = await getCareItem(db, t.clergy, item.id);
+      const view = { today: "2026-11-25", name: "Ruth Cohen", careItems: [closed], restrictedCare: [], followUps: [], contacts: [], team: [], access: {} };
+      const page = await html(<PersonCare view={view} actor={t.clergy} />);
+      expect(page).toContain('data-testid="closed-item"');
+      expect(page).not.toContain("notes-retention");
+      expect(page).not.toMatch(/delet|Keep these notes|Stop keeping|three years|Notes kept/i);
+    }
   });
 });

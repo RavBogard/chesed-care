@@ -8,7 +8,7 @@ import { createContactEntry } from "@/server/care/contact-log";
 import { createFollowUp, setFollowUpDone } from "@/server/care/follow-ups";
 import { PAGE_SIZE, prefixQuery, searchNotes, SEARCHES_PER_HOUR, snippet } from "@/server/care/notes-search";
 import { InvalidInput, TooMany } from "@/server/care/validate";
-import { purgeOldNotes } from "@/server/daily/retention";
+import { runDailyJob } from "@/server/daily/run";
 import { careItems } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { CONTACT, CONTACT2, addActor, reporters, team, testDb } from "./support/db";
@@ -100,15 +100,16 @@ describe("search in notes: visibility is applied in the SQL of every source", ()
     await expect(searchNotes(db, t.carer, "gnu", {}, NOW)).rejects.toBeInstanceOf(AccessDenied);
   });
 
-  it("does not find text the retention job purged", async () => {
+  it("still finds the notes of an item closed long ago: the daily job clears nothing", async () => {
     const item = await open();
     await createContactEntry(db, t.clergy, { careItemId: item.id, kind: "call", occurredAt: WHEN, note: "Ibex was mentioned" });
     await createFollowUp(db, t.clergy, { careItemId: item.id, title: "Ibex follow-up", dueDate: "2026-11-30" });
     expect(await find(t.clergy, "ibex")).toHaveLength(2);
     await db.update(careItems).set({ status: "closed", closedAt: new Date("2020-01-01T00:00:00Z") }).where(eq(careItems.id, item.id));
-    await purgeOldNotes(db, NOW);
-    expect(await find(t.clergy, "ibex")).toHaveLength(0);
-    expect(await find(t.clergy, "pneumonia")).toHaveLength(0);
+    const before = (await find(t.clergy, "pneumonia")).length;
+    await runDailyJob({ db, now: NOW, owners: new Set(["owner@example.test"]), origin: null });
+    expect(await find(t.clergy, "ibex")).toHaveLength(2);
+    expect(await find(t.clergy, "pneumonia")).toHaveLength(before);
   });
 
   it("finds a follow-up's outcome line", async () => {

@@ -1,16 +1,15 @@
 import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessDenied } from "@/server/access/policy";
-import { createCareItem, setKeepNotes } from "@/server/care/care-items";
+import { closeCareItem, createCareItem, reopenCareItem, updateCareItem } from "@/server/care/care-items";
 import { createContactEntry } from "@/server/care/contact-log";
 import { createFollowUp, setFollowUpDone } from "@/server/care/follow-ups";
-import { createProposal } from "@/server/care/proposals";
-import { NotFound } from "@/server/care/validate";
+import { createProposal, dismissProposal } from "@/server/care/proposals";
 import { auditLog, captureTokens, careItems, contactLog, dailySummaries, followUps, jobRuns, mealRateLimits, proposals, users } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
-import { pruneRateLimits, revokeIdleCaptureTokens, countDecidedWithWords } from "@/server/daily/housekeeping";
+import * as housekeeping from "@/server/daily/housekeeping";
+import { pruneRateLimits, revokeIdleCaptureTokens } from "@/server/daily/housekeeping";
 import { handleDailyRequest, isScheduledCall } from "@/server/daily/request";
-import { notesDeleteOn, purgeOldNotes, PURGED_TITLE } from "@/server/daily/retention";
 import { DAILY_TASKS, jobIsOverdue, latestJobRuns, runDailyJob } from "@/server/daily/run";
 import { computeSummary, deliverSummary, effectivePref, getMorningSummary, getSummaryPref, runMorningSummaries, setSummaryPref, summaryMessage } from "@/server/daily/summary";
 import { startJourney } from "@/server/journeys/journeys";
@@ -120,40 +119,46 @@ describe("the daily job's door", () => {
   });
 });
 
-describe("note retention", () => {
-  const YEAR3 = (days: number) => new Date(NOW.getTime() - (3 * 365 + days) * 86_400_000);
+// Daniel, 2026-11-25: "I want it all kept." The three-year clearing of a closed item's notes is retired, and with it
+// the "keep notes" switch. These were the tests of that purge; each is now a test that nothing is cleared.
+describe("care notes are kept: nothing clears them on a timer", () => {
+  const DAY = 86_400_000;
+  // Counted from the real clock as well as from NOW: rows are stamped by the database's own clock.
+  const YEARS = [3, 5, 10];
+  const runAt = (db: Db, at: Date) => runDailyJob({ db, now: at, owners: OWNERS, origin: null });
   async function closedItem(db: Db, t: Awaited<ReturnType<typeof team>>, closedAt: Date, extra: Partial<typeof careItems.$inferInsert> = {}, contact = CONTACT) {
     const item = await createCareItem(db, t.clergy, { sfContactId: contact, sfAccountId: ACCOUNT, displayName: "Ruth Cohen", category: "illness", summary: NOTE, location: "Barnes, room 4", learnedFrom: "Her daughter" });
     await createContactEntry(db, t.clergy, { careItemId: item.id, kind: "call", occurredAt: new Date("2023-01-01T12:00:00Z"), note: NOTE });
     await createFollowUp(db, t.clergy, { careItemId: item.id, title: "Ask about the scan", dueDate: "2023-01-05" });
-    await db.update(careItems).set({ status: "closed", closedAt, ...extra }).where(eq(careItems.id, item.id));
+    await db.update(careItems).set({ status: "closed", closedAt, corpsNote: "Meals on Tuesdays", ...extra }).where(eq(careItems.id, item.id));
     return item;
   }
-
-  it("clears note text three years after closing, keeps rows and dates, and audits ids only; one day short is left alone", async () => {
-    const db = await testDb();
-    const t = await team(db);
-    // 3 years plus a day ago (allowing for the leap day in the span), and 2 years 364 days ago.
-    const due = await closedItem(db, t, YEAR3(2));
-    const notYet = await closedItem(db, t, YEAR3(-1), {}, CONTACT2);
-    expect(await purgeOldNotes(db, NOW)).toEqual({ items: 1, contacts: 1, followUps: 1 });
-
-    const [a] = await db.select().from(careItems).where(eq(careItems.id, due.id));
-    expect([a.summary, a.location, a.learnedFrom, a.status, a.closedAt?.getTime(), a.notesPurgedAt]).toEqual([null, null, null, "closed", YEAR3(2).getTime(), NOW]);
-    const [c] = await db.select().from(contactLog).where(eq(contactLog.careItemId, due.id));
-    expect([c.note, c.kind, c.occurredAt.toISOString()]).toEqual([null, "call", "2023-01-01T12:00:00.000Z"]);
-    const [f] = await db.select().from(followUps).where(eq(followUps.careItemId, due.id));
-    expect([f.title, f.dueDate]).toEqual([PURGED_TITLE, "2023-01-05"]);
-
-    const [b] = await db.select().from(careItems).where(eq(careItems.id, notYet.id));
-    expect(b.summary).toBe(NOTE);
-    const audit = await db.select().from(auditLog).where(eq(auditLog.action, "care_item.notes_purged"));
-    expect(audit.map((r) => [r.actorUserId, r.subjectId, r.detail])).toEqual([[null, due.id, { careItemId: due.id, by: "system" }]]);
-    // Run again: nothing more.
-    expect(await purgeOldNotes(db, NOW)).toEqual({ items: 0, contacts: 0, followUps: 0 });
+  const snapshot = async (db: Db) => ({
+    items: (await db.select().from(careItems)).map((c) => [c.id, c.summary, c.location, c.learnedFrom, c.corpsNote, c.status, c.closedAt?.getTime(), c.notesPurgedAt]).sort(),
+    contacts: (await db.select().from(contactLog)).map((c) => [c.id, c.note, c.kind]).sort(),
+    followUps: (await db.select().from(followUps)).map((f) => [f.id, f.title, f.outcomeNote, f.dueDate]).sort(),
   });
 
-  it("also clears journey steps: an edited step title and a lead's outcome line are gone after the purge", async () => {
+  it("3, 5 and 10 years after closing, the daily job leaves the item's text, its contact notes and its follow-ups exactly as written, and audits no purge", async () => {
+    const db = await testDb();
+    const t = await team(db);
+    const now = new Date();
+    await closedItem(db, t, new Date(now.getTime() - 4 * 365 * DAY));
+    await closedItem(db, t, now, {}, CONTACT2);
+    const before = await snapshot(db);
+    expect(before.items.every((i) => i[1] === NOTE && i[7] === null)).toBe(true);
+    for (const years of YEARS) {
+      const results = await runAt(db, new Date(now.getTime() + (years * 366 + 1) * DAY));
+      expect(results.filter((r) => !r.ok)).toEqual([]);
+      expect(await snapshot(db)).toEqual(before);
+    }
+    expect(await db.select().from(auditLog).where(eq(auditLog.action, "care_item.notes_purged"))).toEqual([]);
+    // No task of the daily job is the note purge any more, and none reports notes cleared.
+    expect(DAILY_TASKS.map((x) => x.key)).not.toContain("note_retention");
+    expect(JSON.stringify(await db.select().from(jobRuns))).not.toMatch(/note_retention|contacts|"items"/);
+  });
+
+  it("journey steps too: an edited step title and a lead's outcome line are still there years after the item closed", async () => {
     const db = await testDb();
     const t = await team(db);
     const lead = await addActor(db, "lead@example.test", "lead");
@@ -164,54 +169,53 @@ describe("note retention", () => {
     const leadStep = journeySteps.find((f) => f.forLead && f.ownerUserId === lead.id)!;
     await db.update(followUps).set({ title: "Ask how the chemo is going" }).where(eq(followUps.id, clergyStep.id));
     await db.update(followUps).set({ doneAt: new Date("2023-01-03T12:00:00Z"), outcomeNote: "She cried about the diagnosis" }).where(eq(followUps.id, leadStep.id));
-    await db.update(careItems).set({ status: "closed", closedAt: YEAR3(10) }).where(eq(careItems.id, item.id));
-    await purgeOldNotes(db, NOW);
+    await db.update(careItems).set({ status: "closed", closedAt: new Date(Date.now() - 10 * 366 * DAY) }).where(eq(careItems.id, item.id));
+    await runAt(db, new Date());
+    await runAt(db, new Date(Date.now() + 10 * 366 * DAY));
     const after = await db.select().from(followUps).where(eq(followUps.careItemId, item.id));
     expect(after).toHaveLength(journeySteps.length);
-    expect(new Set(after.map((f) => f.title))).toEqual(new Set([PURGED_TITLE]));
-    expect(after.every((f) => f.outcomeNote === null)).toBe(true);
-    expect(words(after)).not.toMatch(/chemo|cried/);
-    // Dates and the done mark stay.
-    expect(after.find((f) => f.id === leadStep.id)?.doneAt).toEqual(new Date("2023-01-03T12:00:00Z"));
+    expect(after.find((f) => f.id === clergyStep.id)?.title).toBe("Ask how the chemo is going");
+    expect(after.find((f) => f.id === leadStep.id)).toMatchObject({ outcomeNote: "She cried about the diagnosis", doneAt: new Date("2023-01-03T12:00:00Z") });
   });
 
-  it("never touches an item marked keep, or one that is open, new or paused; a restricted item is cleared like any other, without anyone reading it", async () => {
+  it("with or without the old keep flag, whatever the item's state, and restricted or not: nothing is cleared, and nobody is recorded as reading", async () => {
     const db = await testDb();
     const t = await team(db);
-    const old = YEAR3(30);
-    const kept = await closedItem(db, t, old, { keepNotes: true });
-    const open = await closedItem(db, t, old, { status: "open" });
-    const fresh = await closedItem(db, t, old, { status: "new" });
-    const paused = await closedItem(db, t, old, { status: "paused", pausedUntil: "2027-01-01" });
-    const restricted = await closedItem(db, t, old, { restricted: true }, CONTACT2);
-    const result = await purgeOldNotes(db, NOW);
-    expect(result).toEqual({ items: 1, contacts: 1, followUps: 1 });
+    const old = new Date(Date.now() - 5 * 366 * DAY);
+    const all = [
+      await closedItem(db, t, old),
+      await closedItem(db, t, old, { keepNotes: true }),
+      // "Keep" switched off long ago: under the old rule this one was past its 30 days of grace.
+      await closedItem(db, t, old, { keepNotes: false, notesUnkeptAt: new Date(Date.now() - 400 * DAY) }),
+      await closedItem(db, t, old, { status: "open" }),
+      await closedItem(db, t, old, { status: "new" }),
+      await closedItem(db, t, old, { status: "paused", pausedUntil: "2099-01-01" }),
+      await closedItem(db, t, old, { restricted: true }, CONTACT2),
+    ];
+    const before = await snapshot(db);
+    for (const years of [0, ...YEARS]) await runAt(db, new Date(Date.now() + years * 366 * DAY));
+    expect(await snapshot(db)).toEqual(before);
     const rows = await db.select({ id: careItems.id, summary: careItems.summary }).from(careItems);
-    const summary = (id: string) => rows.find((r) => r.id === id)!.summary;
-    expect([kept, open, fresh, paused].map((i) => summary(i.id))).toEqual([NOTE, NOTE, NOTE, NOTE]);
-    expect(summary(restricted.id)).toBeNull();
-    // Nothing of the restricted item was recorded as read by anyone.
+    expect(all.map((i) => rows.find((r) => r.id === i.id)!.summary)).toEqual(all.map(() => NOTE));
     expect(await db.select().from(auditLog).where(eq(auditLog.action, "restricted.view"))).toEqual([]);
   });
 
-  it("'Keep these notes': clergy who fully see the item set it, it is audited, and the delete date says so", async () => {
+  it("the 'keep notes' switch is gone: no server function sets it, and no audit row of it is written any more", async () => {
     const db = await testDb();
     const t = await team(db);
+    const careItemsModule = await import("@/server/care/care-items");
+    const policy = await import("@/server/access/policy");
+    expect(Object.keys(careItemsModule)).not.toContain("setKeepNotes");
+    expect(Object.keys(policy)).not.toContain("canSetKeepNotes");
     const item = await closedItem(db, t, new Date("2026-01-10T12:00:00Z"));
-    const [row] = await db.select().from(careItems).where(eq(careItems.id, item.id));
-    expect(notesDeleteOn(row)?.toISOString()).toBe("2029-01-10T12:00:00.000Z");
-    await expect(setKeepNotes(db, t.carer, item.id, true)).rejects.toBeInstanceOf(NotFound);
-    const restricted = await createCareItem(db, t.clergy, { sfContactId: CONTACT2, displayName: "Sam", category: "illness", restricted: true });
-    await expect(setKeepNotes(db, t.owner, restricted.id, true)).rejects.toBeInstanceOf(NotFound);
-    const kept = await setKeepNotes(db, t.clergy2, item.id, true);
-    expect(notesDeleteOn(kept)).toBeNull();
-    const audit = await db.select().from(auditLog).where(eq(auditLog.action, "care_item.keep_notes"));
-    expect(audit.map((a) => [a.actorUserId, a.subjectId, a.detail])).toEqual([[t.clergy2.id, item.id, { keepNotes: true }]]);
+    await runAt(db, new Date());
+    expect((await db.select().from(careItems).where(eq(careItems.id, item.id)))[0]).toMatchObject({ keepNotes: false, notesUnkeptAt: null, notesPurgedAt: null, summary: NOTE });
+    expect(await db.select().from(auditLog).where(eq(auditLog.action, "care_item.keep_notes"))).toEqual([]);
   });
 });
 
 describe("housekeeping", () => {
-  it("revokes capture keys unused for 180 days, deletes expired rate-limit rows, and only counts decided proposals that still hold words", async () => {
+  it("revokes capture keys unused for 180 days, deletes expired rate-limit rows, and leaves a decided proposal's words alone", async () => {
     const db = await testDb();
     const t = await team(db);
     const day = 86_400_000;
@@ -237,12 +241,17 @@ describe("housekeeping", () => {
     expect(await pruneRateLimits(db, NOW)).toBe(2);
     expect((await db.select().from(mealRateLimits)).map((r) => r.key).sort()).toEqual(["day:w", "signup:y"]);
 
-    await createProposal(db, t.clergy, { rawText: NOTE, channel: "capture" });
-    expect(await countDecidedWithWords(db)).toBe(0);
-    await db.update(proposals).set({ status: "dismissed" });
-    expect(await countDecidedWithWords(db)).toBe(1);
-    // Counted, not changed.
-    expect((await db.select().from(proposals))[0].rawText).toBe(NOTE);
+    // A decided proposal keeps its words (Daniel, 2026-11-25), so the old self-check "decided proposals with words: expect 0" is gone:
+    // the job neither counts them nor clears them, however long ago the decision was.
+    expect(Object.keys(housekeeping)).not.toContain("countDecidedWithWords");
+    const p = await createProposal(db, t.clergy, { rawText: NOTE, channel: "capture" });
+    await dismissProposal(db, t.clergy, p.id, new Date(Date.now() - 10 * 366 * day));
+    for (const years of [0, 3, 10]) {
+      const results = await runDailyJob({ db, now: new Date(Date.now() + years * 366 * day), owners: OWNERS, origin: null });
+      expect(results.find((r) => r.task === "housekeeping")?.counts).not.toHaveProperty("decidedProposalsWithWords");
+      expect((await db.select().from(proposals))[0]).toMatchObject({ status: "dismissed", rawText: NOTE });
+    }
+    expect(JSON.stringify(await db.select().from(jobRuns))).not.toContain(NOTE);
   });
 
   it("the standing check-in safety net makes a missing next step, once", async () => {
@@ -344,69 +353,55 @@ describe("the morning summary", () => {
 
 describe("review round: retention edges and a failing recorder", () => {
   const closeAt = async (db: Db, id: string, at: Date) => db.update(careItems).set({ status: "closed", closedAt: at }).where(eq(careItems.id, id));
+  const run = (db: Db, at: Date) => runDailyJob({ db, now: at, owners: OWNERS, origin: null });
 
-  it("a reopened item is no longer 'cleared': new text after reopening is purged again three years after the next close", async () => {
+  it("an item closed, reopened, rewritten and closed again keeps every word through each daily run, years on", async () => {
     const db = await testDb();
     const t = await team(db);
     const item = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth", category: "illness", summary: NOTE });
     await closeAt(db, item.id, new Date("2020-01-01T12:00:00Z"));
-    expect((await purgeOldNotes(db, NOW)).items).toBe(1);
-    const { reopenCareItem, closeCareItem, updateCareItem } = await import("@/server/care/care-items");
-    expect((await reopenCareItem(db, t.clergy, item.id)).notesPurgedAt).toBeNull();
+    await run(db, NOW);
+    expect((await reopenCareItem(db, t.clergy, item.id)).summary).toBe(NOTE);
     await updateCareItem(db, t.clergy, item.id, { summary: "New worries" });
     await closeCareItem(db, t.clergy, item.id, NOW);
-    const later = new Date(NOW.getTime() + 3 * 366 * 86_400_000);
-    expect((await purgeOldNotes(db, NOW)).items).toBe(0);
-    expect((await purgeOldNotes(db, later)).items).toBe(1);
+    for (const years of [3, 5, 10]) await run(db, new Date(NOW.getTime() + years * 366 * 86_400_000));
     const [row] = await db.select().from(careItems).where(eq(careItems.id, item.id));
-    expect(row.summary).toBeNull();
+    expect([row.summary, row.notesPurgedAt]).toEqual(["New worries", null]);
   });
 
-  it("a note written to a cleared item (still closed) takes the cleared mark off", async () => {
+  it("an item the retired purge once cleared is not cleared again: text written to it since stays", async () => {
     const db = await testDb();
     const t = await team(db);
-    const item = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth", category: "illness", summary: NOTE });
-    await closeAt(db, item.id, new Date("2020-01-01T12:00:00Z"));
-    await purgeOldNotes(db, NOW);
+    const item = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth", category: "illness" });
+    // As the old job left it: closed long ago, text gone, marked as cleared.
+    await db.update(careItems).set({ status: "closed", closedAt: new Date("2020-01-01T12:00:00Z"), notesPurgedAt: new Date("2023-01-02T12:00:00Z") }).where(eq(careItems.id, item.id));
     // A closed item takes no new contact, but its own text can still be edited.
-    const { updateCareItem } = await import("@/server/care/care-items");
     await updateCareItem(db, t.clergy, item.id, { summary: "Written after the clearing" });
-    expect((await db.select().from(careItems).where(eq(careItems.id, item.id)))[0].notesPurgedAt).toBeNull();
-    // Closed more than three years ago, so the next run clears the new text too.
-    expect((await purgeOldNotes(db, NOW)).items).toBe(1);
-    expect((await db.select().from(careItems).where(eq(careItems.id, item.id)))[0].summary).toBeNull();
+    await run(db, NOW);
+    await run(db, new Date(NOW.getTime() + 5 * 366 * 86_400_000));
+    expect((await db.select().from(careItems).where(eq(careItems.id, item.id)))[0].summary).toBe("Written after the clearing");
   });
 
-  it("an item closed on 29 February is never purged a day early", async () => {
+  it("items closed around a leap day (the old rule's edge) are kept on every date the old rule would have taken them", async () => {
     const db = await testDb();
     const t = await team(db);
     const a = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth", category: "illness", summary: NOTE });
     const b = await createCareItem(db, t.clergy, { sfContactId: CONTACT2, displayName: "Sam", category: "illness", summary: NOTE });
-    // Closed 1 March 2025 and 28 February 2025; the run is on 29 February 2028.
+    const c = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth", category: "illness", summary: NOTE });
     await closeAt(db, a.id, new Date("2025-03-01T06:00:00Z"));
     await closeAt(db, b.id, new Date("2025-02-28T06:00:00Z"));
-    expect((await purgeOldNotes(db, new Date("2028-02-29T12:00:00Z"))).items).toBe(1);
-    expect((await db.select().from(careItems).where(eq(careItems.id, a.id)))[0].summary).toBe(NOTE);
-    // Closed on 29 February 2024: due 1 March 2027, not 28 February.
-    const c = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth", category: "illness", summary: NOTE });
     await closeAt(db, c.id, new Date("2024-02-29T06:00:00Z"));
-    expect((await purgeOldNotes(db, new Date("2027-02-28T12:00:00Z"))).items).toBe(0);
-    const [row] = await db.select().from(careItems).where(eq(careItems.id, c.id));
-    expect(notesDeleteOn(row)?.toISOString()).toBe("2027-03-01T06:00:00.000Z");
-    expect((await purgeOldNotes(db, new Date("2027-03-01T12:00:00Z"))).items).toBe(1);
+    for (const at of ["2027-02-28T12:00:00Z", "2027-03-01T12:00:00Z", "2028-02-29T12:00:00Z", "2028-03-01T12:00:00Z"]) await run(db, new Date(at));
+    expect((await db.select().from(careItems)).map((i) => i.summary)).toEqual([NOTE, NOTE, NOTE]);
   });
 
-  it("switching 'keep' off past the three years gives 30 days before the notes go, and the item says when", async () => {
+  it("an item whose 'keep' was switched off under the old rule is kept past the 30 days it was once given", async () => {
     const db = await testDb();
     const t = await team(db);
     const item = await createCareItem(db, t.clergy, { sfContactId: CONTACT, displayName: "Ruth", category: "illness", summary: NOTE });
-    await closeAt(db, item.id, new Date("2020-01-01T12:00:00Z"));
-    await setKeepNotes(db, t.clergy, item.id, true, NOW);
-    expect((await purgeOldNotes(db, NOW)).items).toBe(0);
-    const unkept = await setKeepNotes(db, t.clergy, item.id, false, NOW);
-    expect(notesDeleteOn(unkept)?.toISOString()).toBe(new Date(NOW.getTime() + 30 * 86_400_000).toISOString());
-    expect((await purgeOldNotes(db, new Date(NOW.getTime() + 29 * 86_400_000))).items).toBe(0);
-    expect((await purgeOldNotes(db, new Date(NOW.getTime() + 30 * 86_400_000))).items).toBe(1);
+    await db.update(careItems).set({ status: "closed", closedAt: new Date("2020-01-01T12:00:00Z"), keepNotes: false, notesUnkeptAt: NOW }).where(eq(careItems.id, item.id));
+    for (const days of [29, 30, 31, 400]) await run(db, new Date(NOW.getTime() + days * 86_400_000));
+    expect((await db.select().from(careItems).where(eq(careItems.id, item.id)))[0]).toMatchObject({ summary: NOTE, notesPurgedAt: null });
   });
 
   it("a job_runs recorder that fails stops nothing: later tasks still run", async () => {
