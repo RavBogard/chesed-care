@@ -16,7 +16,7 @@ import { generateText, Output } from "ai";
 import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { after } from "next/server";
 import { z } from "zod";
-import { canReviewProposal, deny, isClergyLevel, type Actor } from "@/server/access/policy";
+import { deny, isClergyLevel, proposalReviewWhere, type Actor } from "@/server/access/policy";
 import { mealRateLimits, proposals } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { chicagoToday, isDateKey } from "@/server/lifecycle/window";
@@ -146,18 +146,20 @@ export type ReadOutcome = "read" | "off" | "skipped" | "capped" | "failed";
 export async function readAndStore(db: Db, proposalId: string, now: Date = new Date()): Promise<ReadOutcome> {
   if (!aiSortingEnabled()) return "off";
   const [row] = await db
-    .select({ rawText: proposals.rawText, intake: proposals.intake })
+    .select({ rawText: proposals.rawText, intake: proposals.intake, channel: proposals.channel, submittedBy: proposals.submittedBy })
     .from(proposals)
     .where(and(eq(proposals.id, proposalId), eq(proposals.status, "pending"), isNotNull(proposals.rawText), isNull(proposals.reading)))
     .limit(1);
   if (!row?.rawText) return "skipped";
+  // Anything that came through a public link with no account (the public form, a volunteer's flag) shares the public cap.
+  const throughPublicLink = row.channel === "form" && row.submittedBy === null;
   // One reading at a time per proposal: a second caller (a retry, a double press) finds the claim taken and does nothing.
   const claim = `ai:claim:${proposalId}`;
   if (!(await withinLimit(db, claim, 1, now))) return "skipped";
   const release = () => db.delete(mealRateLimits).where(eq(mealRateLimits.key, claim)).then(() => undefined);
   const intake = storedIntake(row.intake);
   // Public-form reports have their own daily cap too, checked first so a refused one spends nothing from the shared count.
-  const formOk = intake?.kind !== "public_form" || (await withinDailyLimit(db, "day:ai:read:form", AI_FORM_CALLS_PER_DAY, now));
+  const formOk = (intake?.kind !== "public_form" && !throughPublicLink) || (await withinDailyLimit(db, "day:ai:read:form", AI_FORM_CALLS_PER_DAY, now));
   if (!formOk || !(await withinLimit(db, "ai:read:all", AI_CALLS_PER_HOUR, now)) || !(await withinDailyLimit(db, "day:ai:read:all", AI_CALLS_PER_DAY, now))) {
     await release();
     return "capped";
@@ -271,8 +273,12 @@ export function scheduleReadings(db: Db, ids: readonly string[]): void {
 /** "Read it again" for clergy on a proposal they may review that has no reading. */
 export async function readAgain(db: Db, actor: Actor, id: unknown, now: Date = new Date()): Promise<ReadOutcome | "limited"> {
   if (!isClergyLevel(actor)) deny();
-  const [row] = await db.select({ id: proposals.id, submittedBy: proposals.submittedBy, reviewScope: proposals.reviewScope }).from(proposals).where(eq(proposals.id, uuidOrNotFound(id))).limit(1);
-  if (!row || !canReviewProposal(actor, row)) throw new NotFound();
+  const [row] = await db
+    .select({ id: proposals.id })
+    .from(proposals)
+    .where(and(eq(proposals.id, uuidOrNotFound(id)), proposalReviewWhere(actor)))
+    .limit(1);
+  if (!row) throw new NotFound();
   if (!aiSortingEnabled()) return "off";
   if (!(await withinLimit(db, `ai:again:${actor.id}`, AI_AGAIN_PER_PERSON, now))) return "limited";
   const outcome = await readAndStore(db, row.id, now);

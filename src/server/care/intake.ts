@@ -1,6 +1,7 @@
 /**
  * Arrivals that are not a signed-in person's own report: the public "Let the clergy
- * know" form, and what Salesforce tells us (a death, a birth). Each only ever
+ * know" form, a volunteer's "Something a rabbi should know", and what Salesforce
+ * tells us (a death, a birth). Each only ever
  * becomes a PROPOSAL for clergy; nothing here searches people, reads care records
  * or says whether anyone is known. What a sender stated is never verified.
  *
@@ -65,6 +66,21 @@ export async function createPublicProposal(db: Db, input: { rawText: string; int
     leadVisible: input.practical === true && input.leadVisible === true,
   })
     .returning({ id: proposals.id });
+  return made.id;
+}
+
+/** Who a volunteer's "Something a rabbi should know" is from, on the Inbox card. */
+export const VOLUNTEER_FLAG_LABEL = "A volunteer";
+
+/**
+ * "Something a rabbi should know", sent from a volunteer's own page: always the shared Inbox, no submitter, nothing
+ * stated beyond the words (no intake). The channel is "form", as for any arrival through a public link; it is never
+ * practical, so the Mitzvah Corps lead never sees it. `scopeCareItemId`: the care item the task is linked to, if any;
+ * only those who may open that item review the proposal (a restricted item: its owner and the clergy named on it).
+ * `db` may be the caller's transaction.
+ */
+export async function createVolunteerFlagProposal(db: Db, rawText: string, scopeCareItemId: string | null): Promise<string> {
+  const [made] = await db.insert(proposals).values({ channel: "form", submittedBy: null, submitterLabel: VOLUNTEER_FLAG_LABEL, rawText, reviewScope: "clergy", scopeCareItemId }).returning({ id: proposals.id });
   return made.id;
 }
 

@@ -391,7 +391,7 @@ export const TOOLS: readonly Tool[] = [
     name: "care_accept_proposal",
     title: "Accept a proposal",
     description:
-      "Accept a proposal with the final values, only after the person has seen them and said yes. Without addToCareItemId it opens a new care item: give who it is about (contactId, outsidePersonId or newOutsidePerson) and a category. With addToCareItemId the summary is added as a note on that care item instead of opening a second one. followUp adds a first follow-up. Clergy only.",
+      "Accept a proposal with the final values, only after the person has seen them and said yes. Without addToCareItemId it opens a new care item: give who it is about (contactId, outsidePersonId or newOutsidePerson) and a category. With addToCareItemId the summary is added as a note on that care item instead of opening a second one. A proposal with scopedToCareItemId whose care item is restricted can only be added to that item (addToCareItemId set to it); anything else is refused. followUp adds a first follow-up. Clergy only.",
     input: z.strictObject({
       proposalId,
       addToCareItemId: careItemId.optional().describe("An existing care item to add this to, from care_get_person."),

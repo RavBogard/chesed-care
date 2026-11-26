@@ -72,6 +72,8 @@ export type AuditAction =
   | "volunteer_series.update"
   | "volunteer_series.cancel"
   | "volunteer_claim.every_time"
+  /** A volunteer sent "Something a rabbi should know": the claim and task ids only, never the words. */
+  | "volunteer_claim.flag"
   | "corps_member.add"
   | "corps_member.update"
   | "corps_member.status"

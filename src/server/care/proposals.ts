@@ -15,7 +15,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
-import { canCreateProposal, canManageCareItems, canReleaseProposal, canReviewProposal, deny, proposalReviewWhere, reviewScopeFor, type Actor } from "@/server/access/policy";
+import { canCreateProposal, canManageCareItems, canReleaseProposal, deny, proposalReviewWhere, reviewScopeFor, type Actor } from "@/server/access/policy";
 import { careItemAccess, careItems, followUps, proposals, users } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { chicagoToday } from "@/server/lifecycle/window";
@@ -93,10 +93,23 @@ export async function listMyReports(db: Db, actor: Actor): Promise<MyReport[]> {
   }));
 }
 
+/**
+ * One proposal, any status, if the actor may review it; else null. Decided in the database (proposalReviewWhere), so a
+ * proposal scoped to a care item is found only by those that item is open to.
+ */
+export async function reviewableProposal(db: Db, actor: Actor, id: unknown): Promise<Row | null> {
+  const [row] = await db
+    .select()
+    .from(proposals)
+    .where(and(eq(proposals.id, uuidOrNotFound(id)), proposalReviewWhere(actor)))
+    .limit(1);
+  return row ?? null;
+}
+
 /** A pending proposal the actor may review, or NotFound (missing and not theirs to see look the same). */
 export async function loadPending(db: Db, actor: Actor, id: unknown): Promise<Row> {
-  const [row] = await db.select().from(proposals).where(eq(proposals.id, uuidOrNotFound(id))).limit(1);
-  if (!row || !canReviewProposal(actor, row)) throw new NotFound();
+  const row = await reviewableProposal(db, actor, id);
+  if (!row) throw new NotFound();
   if (row.status !== "pending") throw new InvalidInput("status");
   return row;
 }
@@ -186,6 +199,12 @@ export const decisionSchema = z.strictObject({
 /** `miSheberach`: what became of the offer to add the name to the list. "barred": the person once asked not to be listed, so nothing was added. */
 export type Accepted = { proposal: Proposal; careItemId: string; person: string; followUpId: string | null; miSheberach?: "added" | "already" | "barred" };
 
+/** Whether the care item a proposal is scoped to is restricted now. A missing item counts as restricted (fail closed). */
+export async function scopeIsRestricted(db: Db, careItemId: string): Promise<boolean> {
+  const [item] = await db.select({ restricted: careItems.restricted }).from(careItems).where(eq(careItems.id, careItemId)).limit(1);
+  return item?.restricted !== false;
+}
+
 /**
  * Accept a proposal with the final values: a new care item (its source is the
  * proposal's channel), or a note of kind "other" added to an existing one, plus an
@@ -202,6 +221,9 @@ export async function acceptProposal(deps: PersonDeps, actor: Actor, id: unknown
   if (d.miSheberach && row.miSheberachAnswer === "no" && d.miSheberach.override !== true) throw new InvalidInput("miSheberach");
   if (d.target.kind === "new" && (!d.person || !d.category)) throw new InvalidInput(d.person ? "category" : "person");
   if (d.target.kind === "existing" && !d.summary?.trim()) throw new InvalidInput("summary");
+  // A volunteer's flag scoped to a RESTRICTED item may only be added to that same item: anywhere else its kept words
+  // (read back as "Original report" by whoever sees the target) would reach people the item is restricted from.
+  if (row.scopeCareItemId && (await scopeIsRestricted(db, row.scopeCareItemId)) && (d.target.kind !== "existing" || d.target.careItemId !== row.scopeCareItemId)) throw new InvalidInput("target");
   // Salesforce is read before the transaction opens; the name and household come from there, never from the proposal.
   const contact = d.target.kind === "new" && d.person && "contactId" in d.person ? await resolvePersonRef(deps, actor, d.person.contactId) : null;
 

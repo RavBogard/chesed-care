@@ -35,7 +35,7 @@ export const volunteerTaskPath = (id: string) => `/volunteers/${id}`;
 /** Finished and cancelled tasks stay on the list for this many days after their date. */
 const LIST_DAYS = 45;
 
-export type ClaimView = Pick<Claim, "id" | "firstName" | "lastName" | "contact" | "note" | "mayAskAgain" | "createdAt" | "cancelledAt" | "cancelledBy" | "doneAt" | "doneNote"> & { forgotten: boolean; /** Taken with "I can do this every time": one removal can take them off every date. */ everyTime: boolean };
+export type ClaimView = Pick<Claim, "id" | "firstName" | "lastName" | "contact" | "note" | "mayAskAgain" | "createdAt" | "cancelledAt" | "cancelledBy" | "doneAt" | "doneNote" | "flaggedAt"> & { forgotten: boolean; /** Taken with "I can do this every time": one removal can take them off every date. */ everyTime: boolean };
 
 export type TaskView = {
   id: string;
@@ -93,6 +93,7 @@ const claimView = (c: Claim): ClaimView => ({
   cancelledBy: c.cancelledBy,
   doneAt: c.doneAt,
   doneNote: c.doneNote,
+  flaggedAt: c.flaggedAt,
   forgotten: c.purgedAt !== null && c.contact === null,
   everyTime: c.claimSetId !== null,
 });

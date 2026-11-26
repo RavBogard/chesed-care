@@ -12,7 +12,7 @@
  */
 import { and, count, desc, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { canReadOriginalReports, canReviewProposal, deny, dismissedReportWhere, proposalReviewWhere, type Actor } from "@/server/access/policy";
+import { canReadOriginalReports, deny, dismissedReportWhere, proposalReviewWhere, type Actor } from "@/server/access/policy";
 import { proposals, users } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { writeAudit } from "./audit";
@@ -113,9 +113,14 @@ export async function reopenProposal(db: Db, actor: Actor, id: unknown): Promise
       .where(and(eq(proposals.id, proposalId), dismissedReportWhere(actor)))
       .returning({ id: proposals.id, channel: proposals.channel });
     if (!reopened) {
-      const [row] = await tx.select({ status: proposals.status, rawText: proposals.rawText, submittedBy: proposals.submittedBy, reviewScope: proposals.reviewScope }).from(proposals).where(eq(proposals.id, proposalId)).limit(1);
+      // Who may see it is asked of the database (proposalReviewWhere): a proposal scoped to a restricted care item is found only by those it is open to.
+      const [row] = await tx
+        .select({ status: proposals.status, rawText: proposals.rawText, submittedBy: proposals.submittedBy, reviewScope: proposals.reviewScope, scopeCareItemId: proposals.scopeCareItemId })
+        .from(proposals)
+        .where(and(eq(proposals.id, proposalId), proposalReviewWhere(actor)))
+        .limit(1);
       // A dismissed report whose words were erased is not on the list, so it is not found either.
-      if (!row || !canReviewProposal(actor, row) || (row.status === "dismissed" && row.rawText === null)) throw new NotFound();
+      if (!row || (row.status === "dismissed" && row.rawText === null)) throw new NotFound();
       throw new InvalidInput("status");
     }
     await writeAudit(tx, actor, "proposal.reopen", "proposal", reopened.id, { channel: reopened.channel });

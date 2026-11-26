@@ -13,7 +13,7 @@ import { and, count, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql, type S
 import { runAfterResponse } from "@/server/after";
 import type { Notice, NoticeKind } from "@/lib/notice";
 import { prefOf } from "@/lib/notice";
-import { canCover, canReviewProposal, canSeePracticalRequests, careItemVisibleWhere, getsReferralNotice, decideAccess, followUpVisibleWhere, mealPageVisibleWhere, proposalReviewWhere, volunteerTaskVisibleWhere, wantsNotice, type Actor } from "@/server/access/policy";
+import { canCover, canSeePracticalRequests, careItemVisibleWhere, getsReferralNotice, decideAccess, followUpVisibleWhere, mealPageVisibleWhere, proposalReviewWhere, volunteerTaskVisibleWhere, wantsNotice, type Actor } from "@/server/access/policy";
 import { isUuid } from "@/server/care/validate";
 import { storedIntake } from "@/server/care/intake";
 import { storedReading } from "@/server/care/reading";
@@ -208,7 +208,7 @@ export async function deliverUrgent(db: Db, actor: Actor, o: { now: Date; propos
 export async function noticeUrgentProposal(db: Db, proposalId: string, now: Date = new Date(), owners: Owners = ownerEmails()): Promise<number> {
   if (!pushStatus().configured) return 0;
   const [row] = await db
-    .select({ id: proposals.id, status: proposals.status, submittedBy: proposals.submittedBy, reviewScope: proposals.reviewScope, reading: proposals.reading, channel: proposals.channel, intake: proposals.intake })
+    .select({ id: proposals.id, status: proposals.status, reading: proposals.reading, channel: proposals.channel, intake: proposals.intake })
     .from(proposals)
     .where(eq(proposals.id, proposalId))
     .limit(1);
@@ -218,12 +218,19 @@ export async function noticeUrgentProposal(db: Db, proposalId: string, now: Date
   if (!death && !isUrgentReading(row.reading)) return 0;
   let sent = 0;
   const everyone = await loadRecipients(db, owners);
-  const reviewers = everyone.filter((actor) => canReviewProposal(actor, row));
+  // Asked of the database, so a proposal scoped to a restricted care item reaches only those the item is open to.
+  const mayReview = async (actor: Actor) => (await db.select({ id: proposals.id }).from(proposals).where(and(eq(proposals.id, row.id), proposalReviewWhere(actor))).limit(1)).length > 0;
+  const reviewers: Actor[] = [];
+  for (const actor of everyone) if (await mayReview(actor)) reviewers.push(actor);
   const awayNow = await listAwayToday(db, chicagoToday(now));
   const cover = coverMap(awayNow);
   const awayIds = new Set(awayNow.map((a) => a.userId));
   // Someone away is not told while away; their coverer is (if they may review this one). deliverUrgent still honours an explicit "off".
-  const covers = reviewers.filter((a) => cover.has(a.id)).map((a) => everyone.find((e) => e.id === cover.get(a.id))).filter((c): c is Actor => !!c && canReviewProposal(c, row));
+  const covers: Actor[] = [];
+  for (const a of reviewers.filter((r) => cover.has(r.id))) {
+    const c = everyone.find((e) => e.id === cover.get(a.id));
+    if (c && (await mayReview(c))) covers.push(c);
+  }
   const told = [...reviewers.filter((a) => !awayIds.has(a.id)), ...covers].filter((a, i, all) => all.findIndex((x) => x.id === a.id) === i);
   for (const actor of told) {
     if ((await deliverUrgent(db, actor, { now, proposalId, publicForm: row.channel === "form" })) === "sent") sent++;

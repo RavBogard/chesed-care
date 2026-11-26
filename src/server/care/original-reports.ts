@@ -8,13 +8,13 @@
  *   canSeeCareItem: a restricted item's words are for its owner and the clergy named on it; no stub, and no
  *   role, the owner included, overrides it). When the words went into a note private to the acceptor
  *   (proposals.words_private), only the acceptor, and only while they still see the item.
- * - DISMISSED: a clergy member who could have reviewed it (canReviewProposal: the shared Inbox, or their own).
+ * - DISMISSED: a clergy member who could have reviewed it (proposalReviewWhere: the shared Inbox, or their own; a proposal scoped to a care item, only those it is open to).
  * Staff, leads, senior staff, caregivers and the person who sent the report never read them back.
  *
  * The words are pastoral: plain text, never logged, emailed, pushed or audited, and not in the connector.
  */
 import { and, asc, eq, inArray, isNotNull, or } from "drizzle-orm";
-import { canReadOriginalReports, canReviewProposal, careItemVisibleWhere, type Actor } from "@/server/access/policy";
+import { canReadOriginalReports, careItemVisibleWhere, proposalReviewWhere, type Actor } from "@/server/access/policy";
 import { careItems, proposals } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { NotFound, uuidOrNotFound } from "./validate";
@@ -53,7 +53,12 @@ export async function getOriginalReports(db: Db, actor: Actor, careItemIds: stri
  * src/server/care/closed-reports.ts, with the same rule in SQL (dismissedReportWhere).
  */
 export async function getDismissedReport(db: Db, actor: Actor, id: unknown): Promise<OriginalReport> {
-  const [row] = await db.select().from(proposals).where(eq(proposals.id, uuidOrNotFound(id))).limit(1);
-  if (!row || row.status !== "dismissed" || !row.rawText || !canReadOriginalReports(actor) || !canReviewProposal(actor, row)) throw new NotFound();
+  // Who could have reviewed it is asked of the database: a proposal scoped to a restricted care item stays with those it is open to.
+  const [row] = await db
+    .select()
+    .from(proposals)
+    .where(and(eq(proposals.id, uuidOrNotFound(id)), proposalReviewWhere(actor)))
+    .limit(1);
+  if (!row || row.status !== "dismissed" || !row.rawText || !canReadOriginalReports(actor)) throw new NotFound();
   return { proposalId: row.id, words: row.rawText, channel: row.channel, receivedAt: row.createdAt };
 }

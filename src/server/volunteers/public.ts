@@ -52,7 +52,7 @@ export const MAX_BRINGING = 40;
 
 export type Refusal = "not_found" | "full" | "past" | "closed" | "refused" | "rate_limited" | "invalid";
 export type Refused = { ok: false; reason: Refusal; fields?: string[] };
-const refused = (reason: Refusal, fields?: string[]): Refused => ({ ok: false, reason, ...(fields ? { fields } : {}) });
+export const refused = (reason: Refusal, fields?: string[]): Refused => ({ ok: false, reason, ...(fields ? { fields } : {}) });
 
 // ─── what a link shows ────────────────────────────────────────────────────────────────
 
@@ -273,7 +273,7 @@ export async function addBringing(db: Db, sheetToken: unknown, input: unknown, c
 
 // ─── by personal token ────────────────────────────────────────────────────────────────
 
-type Mine = { claim: Claim; task: Task };
+export type Mine = { claim: Claim; task: Task };
 
 async function byManageToken(db: Db, token: unknown): Promise<Mine | null> {
   const [row] = await db
@@ -288,7 +288,7 @@ async function byManageToken(db: Db, token: unknown): Promise<Mine | null> {
 
 type MyState = "active" | "cancelled" | "done" | "task_cancelled" | "passed";
 
-function stateOf({ claim: c, task }: Mine): MyState {
+export function stateOf({ claim: c, task }: Mine): MyState {
   if (c.cancelledAt) return "cancelled";
   if (c.doneAt || task.status === "done") return "done";
   return task.status === "cancelled" ? "task_cancelled" : "active";
@@ -314,11 +314,16 @@ export async function getMyClaim(db: Db, manageToken: unknown, now: Date = new D
   return mine ? view(mine, now) : null;
 }
 
-async function manageAttempt(db: Db, manageToken: unknown, clientMeta: unknown, now: Date): Promise<Mine | Refused> {
-  const client = readClient(clientMeta, now, false);
+/**
+ * Every action through a personal link starts here: the client, the per-client cap, then the link. `timed`: the
+ * form's signed render time is read too, and `bot` says whether the honeypot was filled or the form came back too fast.
+ */
+export async function manageAttempt(db: Db, manageToken: unknown, clientMeta: unknown, now: Date, timed = false): Promise<(Mine & { bot: boolean }) | Refused> {
+  const client = readClient(clientMeta, now, timed);
   if (!client) return refused("invalid", ["clientMeta"]);
   if (!(await withinLimit(db, `vol:manage:client:${client.hash}`, VOLUNTEER_LIMITS.managePerClient, now))) return refused("rate_limited");
-  return (await byManageToken(db, manageToken)) ?? refused("not_found");
+  const mine = await byManageToken(db, manageToken);
+  return mine ? { ...mine, bot: client.bot } : refused("not_found");
 }
 
 /** Give the place back. Only while the claim stands and the date has not passed. Cancelling twice is not an error. */

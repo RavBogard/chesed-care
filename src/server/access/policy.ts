@@ -395,7 +395,13 @@ export function canEditContactEntry(actor: Actor, entry: ContactLogAccessRow): b
 // ─── proposals (the Inbox) ───────────────────────────────────────────────────────────
 
 export type ReviewScope = "submitter" | "clergy";
-export type ProposalAccessRow = { submittedBy: string | null; reviewScope: ReviewScope };
+/**
+ * `scopeCareItemId`: a volunteer's "Something a rabbi should know" on a task linked to a care item may be reviewed only
+ * by those who may open that item (a restricted item: its owner and the clergy named on it; no role overrides). The
+ * pure check cannot see the item, so it refuses every scoped proposal (fail closed); code that must decide one asks
+ * the database through proposalReviewWhere (reviewableProposal in src/server/care/proposals.ts).
+ */
+export type ProposalAccessRow = { submittedBy: string | null; reviewScope: ReviewScope; scopeCareItemId: string | null };
 
 /** Every signed-in (so active, allowlisted) user may report a need. */
 export function canCreateProposal(actor: Actor): boolean {
@@ -412,14 +418,17 @@ export function reviewScopeFor(actor: Actor, requested: ReviewScope | undefined)
 
 /** See a proposal in the Inbox, accept it or dismiss it. */
 export function canReviewProposal(actor: Actor, proposal: ProposalAccessRow): boolean {
-  if (!isClergyLevel(actor)) return false;
+  if (!isClergyLevel(actor) || proposal.scopeCareItemId !== null) return false;
   return proposal.reviewScope === "clergy" || proposal.submittedBy === actor.id;
 }
 
-/** SQL twin of canReviewProposal. `p`: the proposals table, or an alias of it (a paging cursor's row). */
-export function proposalReviewWhere(actor: Actor, p: { reviewScope: AnyColumn; submittedBy: AnyColumn } = proposals): SQL {
+/**
+ * SQL twin of canReviewProposal, and the one rule that decides a scoped proposal: only for those the care item is open
+ * to. `p`: the proposals table, or an alias of it (a paging cursor's row).
+ */
+export function proposalReviewWhere(actor: Actor, p: { reviewScope: AnyColumn; submittedBy: AnyColumn; scopeCareItemId: AnyColumn } = proposals): SQL {
   if (!isClergyLevel(actor)) return sql`false`;
-  return or(eq(p.reviewScope, "clergy"), eq(p.submittedBy, actor.id))!;
+  return and(or(eq(p.reviewScope, "clergy"), eq(p.submittedBy, actor.id)), careItemOpenTo(actor, p.scopeCareItemId))!;
 }
 
 // ─── adding directly: staff and Mitzvah Corps leads ─────────────────────────────────────

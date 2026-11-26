@@ -24,7 +24,7 @@ const MAX_CHANGES = 30;
 export type NeedsItem = { id: string; kind: Kind; label: string; date: string; timeWindow: string | null; daysLeft: number; placesLeft: number; href: string; askHref: string };
 export type HomeStep = { id: string; person: string; title: string; dueDate: string; corpsNote: string | null; mealsHref: string | null };
 export type HomeMeal = { id: string; title: string; openNights: { date: string; meal: string }[]; href: string };
-export type ChangeKind = "signed_up" | "gave_back" | "removed" | "done" | "meal_signed_up" | "meal_cancelled";
+export type ChangeKind = "signed_up" | "gave_back" | "removed" | "done" | "flagged" | "meal_signed_up" | "meal_cancelled";
 export type Change = { at: Date; kind: ChangeKind; firstName: string | null; label: string; note: string | null; href: string };
 export type WeekDay = { date: string; items: { id: string; kind: Kind; label: string; timeWindow: string | null; href: string }[] };
 
@@ -106,8 +106,9 @@ async function changesSince(db: Db, actor: Actor, now: Date): Promise<Change[]> 
     .from(volunteerClaims)
     .innerJoin(volunteerTasks, eq(volunteerTasks.id, volunteerClaims.taskId))
     .leftJoin(volunteerGroups, eq(volunteerGroups.id, volunteerTasks.groupId))
-    .where(and(volunteerTaskVisibleWhere(actor), or(gte(volunteerClaims.createdAt, since), gte(volunteerClaims.cancelledAt, since), gte(volunteerClaims.doneAt, since))))
-    .orderBy(desc(volunteerClaims.createdAt))
+    .where(and(volunteerTaskVisibleWhere(actor), or(gte(volunteerClaims.createdAt, since), gte(volunteerClaims.cancelledAt, since), gte(volunteerClaims.doneAt, since), gte(volunteerClaims.flaggedAt, since))))
+    // Newest event first (Postgres's greatest skips nulls), so a recent change on an old claim is not cut off by the limit.
+    .orderBy(desc(sql`greatest(${volunteerClaims.createdAt}, ${volunteerClaims.cancelledAt}, ${volunteerClaims.doneAt}, ${volunteerClaims.flaggedAt})`))
     .limit(100);
   for (const { claim, task, sheet } of claims) {
     const label = task.groupId ? `Shiva for ${sheet ?? task.forLabel}` : task.forLabel;
@@ -116,6 +117,8 @@ async function changesSince(db: Db, actor: Actor, now: Date): Promise<Change[]> 
     if (claim.createdAt >= since) out.push({ ...base, at: claim.createdAt, kind: "signed_up", note: null });
     if (claim.cancelledAt && claim.cancelledAt >= since) out.push({ ...base, at: claim.cancelledAt, kind: claim.cancelledBy === "poster" ? "removed" : "gave_back", note: null });
     if (claim.doneAt && claim.doneAt >= since) out.push({ ...base, at: claim.doneAt, kind: "done", note: claim.doneNote });
+    // Only THAT something went to the rabbis: the words are in the clergy Inbox, never here, and no name is given.
+    if (claim.flaggedAt && claim.flaggedAt >= since) out.push({ ...base, firstName: null, at: claim.flaggedAt, kind: "flagged", note: null });
   }
   if (canManageMealPages(actor)) {
     const meals = await db

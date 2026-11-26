@@ -147,7 +147,7 @@ export async function getReport(db: Db, actor: Actor, period: Period, now: Date 
   const itemScope: SQL = nameless ? sql`not ${careItems.restricted}` : careItemVisibleWhere(actor);
   const plainItem = (col: SQL | { _: unknown }): SQL => sql`(${col} is null or exists (select 1 from ${careItems} ci where ci.id = ${col} and not ci.restricted))`;
   const followUpScope: SQL = nameless ? plainItem(followUps.careItemId) : followUpVisibleWhere(actor);
-  const proposalScope: SQL = nameless ? eq(proposals.reviewScope, "clergy") : proposalReviewWhere(actor);
+  const proposalScope: SQL = nameless ? and(eq(proposals.reviewScope, "clergy"), plainItem(proposals.scopeCareItemId))! : proposalReviewWhere(actor);
   const taskScope: SQL = nameless ? plainItem(volunteerTasks.careItemId) : volunteerTaskVisibleWhere(actor);
   const mealScope: SQL = nameless ? plainItem(mealPages.careItemId) : mealPageVisibleWhere(actor);
 

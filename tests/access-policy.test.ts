@@ -340,12 +340,14 @@ describe("proposals", () => {
   });
 
   it("clergy level review the shared Inbox and their own captures; no one else reviews anything, their own included", () => {
-    const sharedOne = { submittedBy: staff.id, reviewScope: "clergy" as const };
-    const mine = { submittedBy: clergy.id, reviewScope: "submitter" as const };
+    const sharedOne = { submittedBy: staff.id, reviewScope: "clergy" as const, scopeCareItemId: null };
+    const mine = { submittedBy: clergy.id, reviewScope: "submitter" as const, scopeCareItemId: null };
     expect(canReviewProposal(owner, sharedOne)).toBe(true);
     expect(canReviewProposal(clergy, mine)).toBe(true);
     expect(canReviewProposal(owner, mine)).toBe(false);
-    for (const a of [carer, ...reporters]) expect(canReviewProposal(a, { submittedBy: a.id, reviewScope: "clergy" })).toBe(false);
+    for (const a of [carer, ...reporters]) expect(canReviewProposal(a, { submittedBy: a.id, reviewScope: "clergy", scopeCareItemId: null })).toBe(false);
+    // Scoped to a care item: the pure check cannot see the item, so it refuses everyone (the database decides).
+    for (const a of [owner, clergy]) expect(canReviewProposal(a, { ...sharedOne, scopeCareItemId: "00000000-0000-4000-8000-000000000001" })).toBe(false);
     expect(canReleaseProposal(clergy, mine)).toBe(true);
     expect(canReleaseProposal(owner, mine)).toBe(false);
     expect(canReleaseProposal(clergy, { ...mine, reviewScope: "clergy" })).toBe(false);

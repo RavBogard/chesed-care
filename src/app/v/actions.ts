@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ActionState } from "@/lib/action-state";
-import { refusalMessage, type PublicReason } from "@/lib/volunteers-wording";
+import { FLAG_WORDS, refusalMessage, type PublicReason } from "@/lib/volunteers-wording";
 import { isUuid } from "@/server/care/validate";
 import { refCookie } from "@/lib/vol-cookie";
 import { volunteerSignupMail } from "@/lib/email-wording";
@@ -22,6 +22,7 @@ import { tokenHash } from "@/server/meals/tokens";
 import { normalizeContact } from "@/server/volunteers/input";
 import { elapsedSinceStamp } from "@/server/meals/client-meta";
 import { clientMeta, refusals, text } from "@/server/public/form";
+import { flagForRabbis } from "@/server/volunteers/flag";
 import { addBringing, cancelMyClaim, cancelMySeries, claimEveryTime, claimOnSheet, claimTask, getMySeries, markMyClaimDone, type Refused } from "@/server/volunteers/public";
 
 export type ClaimState = { status: "idle" } | { status: "error"; message: string; reason: PublicReason; fields: string[] };
@@ -143,6 +144,24 @@ export async function doneClaimAction(_prev: ActionState, form: FormData): Promi
   }
   revalidatePath("/v", "layout");
   return { status: "ok", message: "Marked done. Thank you." };
+}
+
+export type FlagState = { status: "idle" } | { status: "sent" } | { status: "error"; message: string };
+
+/** "Something a rabbi should know": the words go to the clergy Inbox and nowhere else. The volunteer is told only that it was sent. */
+export async function flagAction(_prev: FlagState, form: FormData): Promise<FlagState> {
+  const token = text(form, "token");
+  try {
+    if (elapsedSinceStamp(text(form, "stamp"), token, new Date()) === null) return { status: "error", message: refusalMessage("stale") };
+    const meta = await clientMeta(token, form, true);
+    if (!meta) return { status: "error", message: refusalMessage("refused") };
+    const result = await flagForRabbis(getDb(), token, text(form, "words"), meta);
+    if (!result.ok) return { status: "error", message: result.reason === "rate_limited" ? FLAG_WORDS.flagLater : refusalMessage(result.reason, result.fields) };
+  } catch (error) {
+    console.error("Volunteers flag failed", error instanceof Error ? error.name : "unknown");
+    return { status: "error", message: refusalMessage("unknown") };
+  }
+  return { status: "sent" };
 }
 
 /** "I can do this every time": every open date of the task's series in one go, then straight to the volunteer's own page listing them all. */

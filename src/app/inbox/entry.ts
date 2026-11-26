@@ -2,7 +2,7 @@ import type { InboxEntry } from "@/components/inbox-card";
 import type { PersonChoice } from "@/components/person-picker";
 import type { Actor } from "@/server/access/policy";
 import { aiSortingEnabled } from "@/server/care/ai-config";
-import { listCareItems } from "@/server/care/care-items";
+import { listCareItems, loadVisibleCareItem } from "@/server/care/care-items";
 import { storedIntake } from "@/server/care/intake";
 import { getOutsidePerson } from "@/server/care/outside-people";
 import { cachedPerson } from "@/server/care/person-page";
@@ -50,5 +50,16 @@ export async function entryFor(db: Db, actor: Actor, p: Proposal, names: Map<str
       existing = [];
     }
   }
-  return { proposal: p, person, candidates, existing, nameMatches, matchPending: wantsMatch && !match, canReread: aiSortingEnabled() && !p.reading && !!p.rawText, suggestedOwnerName: p.reading?.ownerUserId ? (names.get(p.reading.ownerUserId) ?? null) : null, own: p.submittedBy === actor.id && p.reviewScope === "submitter", intake: storedIntake(p.intake) };
+  // A volunteer's flag on a task for a care item: the viewer reviews it only because that item is open to them. If it
+  // cannot be read now, it is treated as restricted with no target (fail closed): only Dismiss is offered.
+  let scope: InboxEntry["scope"] = null;
+  if (p.scopeCareItemId) {
+    try {
+      const item = await loadVisibleCareItem(db, actor, p.scopeCareItemId);
+      scope = { careItemId: item.id, restricted: item.restricted, label: item.status === "closed" ? null : { displayName: item.displayName, category: item.category } };
+    } catch {
+      scope = { careItemId: p.scopeCareItemId, restricted: true, label: null };
+    }
+  }
+  return { scope, proposal: p, person, candidates, existing, nameMatches, matchPending: wantsMatch && !match, canReread: aiSortingEnabled() && !p.reading && !!p.rawText, suggestedOwnerName: p.reading?.ownerUserId ? (names.get(p.reading.ownerUserId) ?? null) : null, own: p.submittedBy === actor.id && p.reviewScope === "submitter", intake: storedIntake(p.intake) };
 }

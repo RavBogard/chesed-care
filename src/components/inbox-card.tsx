@@ -2,7 +2,7 @@ import { acceptProposalAction, dismissProposalAction, keepToClergyAction, readAg
 import { CATEGORY_LABEL, type CategoryKey } from "@/lib/care-labels";
 import { markEvidence } from "@/lib/evidence";
 import { instantDate, monthDay } from "@/lib/format";
-import type { Intake } from "@/server/care/intake";
+import { VOLUNTEER_FLAG_LABEL, type Intake } from "@/server/care/intake";
 import type { Proposal } from "@/server/care/proposals";
 import { ActionForm } from "./action-form";
 import { AddToAgenda } from "./agenda/add-to-agenda";
@@ -13,7 +13,7 @@ import type { JourneyOption } from "./journey-picker";
 import { LockIcon } from "./lock-icon";
 import type { PersonChoice } from "./person-picker";
 import { Sheet } from "./sheet";
-import { btnPrimary, btnQuiet, cardClass, tagNew, tagQuiet, tagRestricted, titleClass } from "./ui";
+import { btnPrimary, btnQuiet, cardClass, inputClass, labelClass, tagNew, tagQuiet, tagRestricted, titleClass } from "./ui";
 
 export const CHANNEL_LABEL: Record<Proposal["channel"], string> = {
   clergy: "Written in the app",
@@ -43,6 +43,11 @@ export type InboxEntry = {
   own: boolean;
   /** What a public sender or Salesforce stated, when there is any. */
   intake: Intake | null;
+  /**
+   * A volunteer's flag on a task for a care item the viewer may open. Restricted: it can only be added to that item
+   * (the server refuses anything else). `label` is null when that item cannot take it (closed, or unreadable now).
+   */
+  scope?: { careItemId: string; restricted: boolean; label: { displayName: string; category: string } | null } | null;
 };
 
 const URGENCY_LABEL: Record<string, string> = { now: "Right now", today: "Today", week: "This week", routine: "No rush" };
@@ -60,6 +65,19 @@ const Row = ({ term, children }: { term: string; children: React.ReactNode }) =>
 /** The sheet's starting values: the reading, where there is one. */
 export function initialFor(entry: InboxEntry): DecisionInitial {
   const r = entry.proposal.reading;
+  // A flag on a task for an open (unrestricted) care item starts as an addition to that item; the usual choices stay.
+  const scoped = entry.scope?.label ? { id: entry.scope.careItemId, category: entry.scope.label.category } : null;
+  if (scoped) {
+    return {
+      person: entry.person,
+      candidates: entry.candidates,
+      existing: [scoped, ...entry.existing.filter((i) => i.id !== scoped.id)],
+      existingCareItemId: scoped.id,
+      summary: r?.summary,
+      followUp: r?.followUp ?? null,
+      followUpIdea: r?.followUp ? undefined : r?.followUpIdea,
+    };
+  }
   return {
     person: entry.person,
     candidates: entry.candidates,
@@ -124,8 +142,12 @@ export function InboxCard({ entry, today, actorId, holders, journeyChoices = [] 
   const sensitive = r?.restrictedSuggested === true;
   // The app's own reading is a suggestion: Accept always opens the sheet to check it, never saves in one tap.
   const ready = r?.by !== "app_ai" && entry.person !== null && !sensitive && (initial.existingCareItemId ? !!r?.summary : !!r?.category);
-  const from = entry.own ? "You" : p.submittedBy ? (p.submitterName ?? "Someone") : null;
+  // With no submitter, the stored label says where it came from ("A volunteer"), unless the channel already says so ("Public form", "Staff report").
+  const sourceLabel = !p.submittedBy && p.submitterName && !CHANNEL_LABEL[p.channel].toLowerCase().includes(p.submitterName.toLowerCase()) ? p.submitterName : null;
+  const from = entry.own ? "You" : p.submittedBy ? (p.submitterName ?? "Someone") : sourceLabel;
   const pub = entry.intake?.kind === "public_form" ? entry.intake : null;
+  // Unverified: what a public sender stated, and a volunteer's flag (as the connector says too). A decided public report put back in the Inbox has lost its intake, so says nothing either way.
+  const unverified = !!pub || (!p.submittedBy && p.channel === "form" && p.submitterName === VOLUNTEER_FLAG_LABEL);
   const editor = (title: string, trigger: string, triggerClass: string) => (
     <Sheet label={trigger} title={title} triggerClassName={triggerClass}>
       <DecisionForm proposalId={p.id} words={p.rawText} today={today} actorId={actorId} holders={holders} initial={initial} submitLabel="Save to the care list" journeyChoices={journeyChoices} />
@@ -134,7 +156,7 @@ export function InboxCard({ entry, today, actorId, holders, journeyChoices = [] 
   return (
     <li className={cardClass} data-testid="inbox-card">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 className={titleClass}>{pub ? <span className="text-alert">Unverified: </span> : null}
+        <h2 className={titleClass}>{unverified ? <span className="text-alert">Unverified: </span> : null}
           {entry.person?.name ?? pub?.about ?? "Someone, not yet matched"}
         </h2>
         <p className="text-sm text-rubric">
@@ -260,6 +282,12 @@ export function InboxCard({ entry, today, actorId, holders, journeyChoices = [] 
         </div>
       ) : null}
 
+      {entry.scope?.restricted ? (
+        <div className="mt-4 flex flex-wrap items-start gap-2" data-testid="inbox-scoped">
+          {entry.scope.label ? <AddToScopedItem proposalId={p.id} careItemId={entry.scope.careItemId} label={entry.scope.label} summary={r?.summary ?? ""} /> : null}
+          <DismissProposal proposalId={p.id} />
+        </div>
+      ) : (
       <div className="mt-4 flex flex-wrap items-start gap-2">
         {entry.person ? <AddToAgenda about={entry.person.name} {...(entry.person.kind === "sf" ? { sfContactId: entry.person.contactId } : { outsidePersonId: entry.person.id })} displayName={entry.person.name} idPrefix={`agenda-${p.id}`} /> : null}
         {ready ? (
@@ -285,18 +313,51 @@ export function InboxCard({ entry, today, actorId, holders, journeyChoices = [] 
           editor(entry.person ? `Accept: ${entry.person.name}` : "Accept: who is it about?", "Accept", btnPrimary)
         )}
         {editor(entry.person ? `Edit: ${entry.person.name}` : "Edit", "Edit", btnQuiet)}
-        <ConfirmAction
-          action={dismissProposalAction}
-          fields={{ proposalId: p.id }}
-          label="Dismiss"
-          title="Dismiss this?"
-          explain="It is closed without action. The words are kept for the rabbis, under Closed without action, at the foot of the Inbox. Whoever sent it will see that it was closed without action."
-          confirmLabel="Dismiss"
-        />
+        <DismissProposal proposalId={p.id} />
         {entry.own ? (
           <ActionButton action={releaseProposalAction} fields={{ proposalId: p.id }} label="Send to the Inbox for someone else" className={btnQuiet} showOk={false} />
         ) : null}
       </div>
+      )}
     </li>
+  );
+}
+
+function DismissProposal({ proposalId }: { proposalId: string }) {
+  return (
+    <ConfirmAction
+      action={dismissProposalAction}
+      fields={{ proposalId }}
+      label="Dismiss"
+      title="Dismiss this?"
+      explain="It is closed without action. The words are kept for the rabbis, under Closed without action, at the foot of the Inbox. Whoever sent it will see that it was closed without action."
+      confirmLabel="Dismiss"
+    />
+  );
+}
+
+/**
+ * A volunteer's flag on a task for a RESTRICTED care item: it can only be added to that same item (the server refuses
+ * anything else), so its kept words stay with the people the item is open to. No agenda, no new item, no other person.
+ */
+function AddToScopedItem({ proposalId, careItemId, label, summary }: { proposalId: string; careItemId: string; label: { displayName: string; category: string }; summary: string }) {
+  const kind = (CATEGORY_LABEL[label.category as CategoryKey] ?? label.category).toLowerCase();
+  const title = `Add to the ${kind} care for ${label.displayName}`;
+  return (
+    <Sheet label={title} title={title} triggerClassName={btnPrimary}>
+      <ActionForm action={acceptProposalAction} className="flex flex-col gap-4">
+        <input type="hidden" name="proposalId" value={proposalId} />
+        <input type="hidden" name="careItemId" value={careItemId} />
+        <div>
+          <label htmlFor={`scoped-${proposalId}`} className={labelClass}>
+            What to add
+          </label>
+          <textarea id={`scoped-${proposalId}`} name="summary" rows={3} maxLength={500} required defaultValue={summary} className={`${inputClass} py-2`} />
+        </div>
+        <button type="submit" className={btnPrimary}>
+          Save
+        </button>
+      </ActionForm>
+    </Sheet>
   );
 }

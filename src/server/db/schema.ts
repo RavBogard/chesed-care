@@ -252,6 +252,8 @@ export const proposals = pgTable(
     /** The Mitzvah Corps lead (or a clergy member) who said "I'll take this". First taker wins. */
     takenBy: uuid("taken_by").references(() => users.id),
     takenAt: timestamp("taken_at", { withTimezone: true }),
+    /** A volunteer's flag on a task linked to a care item: only those who may open that item review it (a restricted item: its owner and the clergy named on it). Scoping only: never shown, and nothing of the item is copied. */
+    scopeCareItemId: uuid("scope_care_item_id").references(() => careItems.id),
   },
   (t) => [index("proposals_status_idx").on(t.status, t.reviewScope), index("proposals_submitter_idx").on(t.submittedBy), uniqueIndex("proposals_external_key_key").on(t.externalKey)],
 );
@@ -637,6 +639,8 @@ export const volunteerClaims = pgTable(
     doneAt: timestamp("done_at", { withTimezone: true }),
     /** The volunteer's one line back to the poster. */
     doneNote: text("done_note"),
+    /** When the volunteer last sent "Something a rabbi should know" from their own page. Only the time: the words went to the clergy Inbox as a proposal and are never kept here. */
+    flaggedAt: timestamp("flagged_at", { withTimezone: true }),
     purgedAt: timestamp("purged_at", { withTimezone: true }),
     /** Claims made together by one "I can do this every time" share this id; only the first carries a personal link. */
     claimSetId: uuid("claim_set_id"),

@@ -89,6 +89,8 @@ export function proposalRow(p: Proposal) {
     from: p.submitterName,
     // submitter: only the person who captured it reviews it. clergy: the shared Inbox.
     reviewScope: p.reviewScope,
+    // A volunteer's flag on a task for this care item: only those who may open the item see it, and when the item is restricted it can only be added to that same item.
+    scopedToCareItemId: p.scopeCareItemId,
     receivedAt: p.createdAt.toISOString(),
     text: p.rawText,
     reading: p.reading,

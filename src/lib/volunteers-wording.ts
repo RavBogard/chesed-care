@@ -49,6 +49,7 @@ const FIELD_WORDS: Record<string, string> = {
   contact: "your email or mobile number",
   note: "your note",
   line: "what you are bringing",
+  words: "what you wrote",
 };
 
 const OWN_REFUSALS: Partial<Record<PublicReason, string>> = {
@@ -63,3 +64,25 @@ export const refusalMessage = (reason: PublicReason, fields: string[] = []): str
 
 /** The warning under a "what is needed" field that volunteers read. */
 export const NEEDED_HELP = "One or two lines for volunteers. Please do not say why: no illness, no diagnosis, nothing from the care record.";
+
+/**
+ * "Something a rabbi should know", on a volunteer's own page: for the volunteer who finds more than they came for.
+ * What they write goes only to the clergy Inbox. The poster and the coordinator learn only that something was sent.
+ */
+export const FLAG_WORDS = {
+  open: "Something a rabbi should know",
+  guidance: "You are not expected to handle an emergency. In an emergency, call 911. Otherwise, write it here and the rabbis will see it.",
+  label: "What a rabbi should know",
+  send: "Send",
+  sending: "Sending",
+  sent: "Sent. A rabbi will see it.",
+  /** On the task, for the poster and the coordinator: never the words. */
+  marker: "A volunteer flagged something for the rabbis",
+  flagLater: "We could not take this just now. Please try again later, or call the office. In an emergency, call 911.",
+} as const;
+/** The most a volunteer may write in one. */
+export const FLAG_MAX = 1000;
+
+/** The text the server writes into the proposal, above the volunteer's own words: only what the volunteer already knew. */
+export const flagProposalText = (o: { firstName: string | null; task: string; when: string; words: string }) =>
+  `From a volunteer's own page.\nVolunteer: ${o.firstName ?? "first name not given"}\nTask: ${o.task}\nWhen: ${o.when}\n\nWhat they wrote:\n${o.words}`;

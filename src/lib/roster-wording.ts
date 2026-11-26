@@ -112,6 +112,7 @@ export const CHANGE_WORDS = {
   gave_back: (who: string, what: string) => `${who} gave back ${what}`,
   removed: (who: string, what: string) => `${who} was taken off ${what}`,
   done: (who: string, what: string) => `${who} finished ${what}`,
+  flagged: (_who: string, what: string) => `A volunteer flagged something for the rabbis: ${what}`,
   meal_signed_up: (who: string, what: string) => `${who} signed up for meals for ${what}`,
   meal_cancelled: (who: string, what: string) => `${who} cancelled a meal for ${what}`,
 } as const;

@@ -3,7 +3,9 @@ import { cancelClaimAction, cancelDateAction, doneClaimAction } from "@/app/v/ac
 import { ActionForm } from "@/components/action-form";
 import { ConfirmAction } from "@/components/confirm-sheet";
 import { PageSection, PublicFrame } from "@/components/meals/parts";
+import { FlagForm } from "@/components/volunteers/flag-form";
 import { Facts, taskHeading, whenWords } from "@/components/volunteers/parts";
+import { signRenderStamp } from "@/server/meals/client-meta";
 import { publicMetadata } from "@/components/public-meta";
 import { btnLaptopNatural, btnPrimary, btnQuiet, inputClass, labelClass, tagQuiet } from "@/components/ui";
 import { longDate } from "@/lib/format";
@@ -108,12 +110,15 @@ export default async function MyClaimPage({ params, searchParams }: { params: Pr
   if (!mine) notFound();
 
   if (mine.state !== "active") {
+    // Done or passed is often when a volunteer knows there is more: they can still tell the rabbis.
+    const mayFlag = mine.state === "done" || mine.state === "passed";
     return (
       <PublicFrame congregation={CONGREGATION} title={taskHeading(mine.kind, mine.forLabel)}>
         <p className="mt-4 text-lg" data-testid={`state-${mine.state}`}>
           {ENDED[mine.state]}
         </p>
         <p className="mt-2 text-base text-rubric">{longDate(mine.date)}</p>
+        {mayFlag ? <FlagForm token={token} stamp={signRenderStamp(token, new Date())} /> : null}
       </PublicFrame>
     );
   }
@@ -154,6 +159,7 @@ export default async function MyClaimPage({ params, searchParams }: { params: Pr
             Mark it done
           </button>
         </ActionForm>
+        <FlagForm token={token} stamp={signRenderStamp(token, new Date())} />
       </PageSection>
 
       {mine.past ? null : (

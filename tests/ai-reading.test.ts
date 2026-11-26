@@ -15,6 +15,7 @@ import { matchNames } from "@/server/care/reading-match";
 import { readingField, storedReading } from "@/server/care/reading";
 import { splitNames } from "@/server/care/name-match";
 import { submitTell } from "@/server/care/tell";
+import { createVolunteerFlagProposal } from "@/server/care/intake";
 import { NotFound } from "@/server/care/validate";
 import { proposals } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
@@ -266,6 +267,15 @@ describe("the public-form daily cap", () => {
     const staff = await staffReport();
     expect(await readAndStore(db, staff, NOW)).toBe("read");
     expect(hoisted.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a volunteer's flag (a public link, no intake) against the same cap", async () => {
+    modelReturns(answer());
+    for (let i = 0; i < AI_FORM_CALLS_PER_DAY; i++) await withinDailyLimit(db, "day:ai:read:form", AI_FORM_CALLS_PER_DAY, NOW);
+    const flag = await createVolunteerFlagProposal(db, TEXT, null);
+    expect(await readAndStore(db, flag, NOW)).toBe("capped");
+    expect(hoisted.generate).not.toHaveBeenCalled();
+    expect(await readAndStore(db, flag, new Date(NOW.getTime() + 26 * 3_600_000))).toBe("read");
   });
 });
 
