@@ -280,7 +280,7 @@ async function changeStatus(db: Db, actor: Actor, id: unknown, from: MealPageSta
 export const goLive = (db: Db, actor: Actor, id: unknown, now: Date = new Date()) => changeStatus(db, actor, id, ["draft"], "live", "meal_page.go_live", now, (page) => page.familyAgreedAt !== null);
 export const pauseMealPage = (db: Db, actor: Actor, id: unknown, now: Date = new Date()) => changeStatus(db, actor, id, ["live"], "paused", "meal_page.pause", now);
 export const resumeMealPage = (db: Db, actor: Actor, id: unknown, now: Date = new Date()) => changeStatus(db, actor, id, ["paused"], "live", "meal_page.resume", now);
-/** Ending is final. Thirty days later the helpers' names and emails are purged (./purge.ts). */
+/** Ending is final. Thirty days later the notes and links are purged (./purge.ts); helpers' names and emails are kept. */
 export const endMealPage = (db: Db, actor: Actor, id: unknown, now: Date = new Date()) => changeStatus(db, actor, id, ["draft", "live", "paused"], "ended", "meal_page.end", now);
 
 /** Share a page with a colleague who may run pages. They see and manage it as the organiser does. */

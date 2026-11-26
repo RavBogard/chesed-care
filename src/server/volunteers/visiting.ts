@@ -4,7 +4,7 @@
  * line (for example a family member's phone) and a note for the visitor. Everyone else is refused, and the screens answer them
  * as if the page did not exist. Audit rows hold ids only, never a name, a place or a note.
  */
-import { and, count, eq, inArray, isNotNull, isNull, lte, max, sql, type SQL } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, max, sql, type SQL } from "drizzle-orm";
 import { canAssignVisitor, canLogVolunteerVisit, canManageVisitingList, canSeeVisitingList, deny, isClergyLevel, outsidePersonVisibleWhere, type Actor } from "@/server/access/policy";
 import { writeAudit } from "@/server/care/audit";
 import { resolvePersonRef } from "@/server/care/person-ref";
@@ -15,8 +15,6 @@ import type { Db } from "@/server/db/types";
 import { addDays, chicagoToday } from "@/server/lifecycle/window";
 import { effectiveStatus } from "./roster";
 
-/** An entry is deleted, with its visits, this long after it was ended. */
-export const VISITING_RETENTION_DAYS = 30;
 /** A visit may be logged for today or up to this many days back. */
 export const VISIT_BACK_DAYS = 60;
 
@@ -111,7 +109,7 @@ export async function updateVisitingEntry(db: Db, actor: Actor, id: unknown, inp
   });
 }
 
-/** Clergy take a person off the list. The entry and its visits are deleted 30 days later by the daily job. */
+/** Clergy take a person off the list. The entry and its visits are kept (Daniel, 2026-11-25: "Keep everything"), no longer shown. */
 export async function endVisitingEntry(db: Db, actor: Actor, id: unknown, now: Date = new Date()): Promise<void> {
   if (!canManageVisitingList(actor)) deny();
   const entry = await loadActive(db, actor, id);
@@ -201,11 +199,4 @@ export async function logVisit(db: Db, actor: Actor, id: unknown, visitedOn: unk
     // The same day twice is a quiet no-op.
     if (made) await writeAudit(tx, actor, "visiting.visit", "visiting_entry", entry.id, { visitingId: entry.id });
   });
-}
-
-/** Daily: entries ended 30 or more days ago are deleted, and their visits with them. No actor; a count only. */
-export async function purgeVisiting(db: Db, now: Date = new Date()): Promise<{ deleted: number }> {
-  const cutoff = new Date(now.getTime() - VISITING_RETENTION_DAYS * 86_400_000);
-  const gone = await db.delete(visitingList).where(and(isNotNull(visitingList.endedAt), lte(visitingList.endedAt, cutoff))).returning({ id: visitingList.id });
-  return { deleted: gone.length };
 }

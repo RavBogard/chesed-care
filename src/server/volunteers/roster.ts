@@ -20,7 +20,6 @@ import { normalizeContact, parse } from "./input";
 import { PENDING_DAYS } from "./join";
 import { getVolunteerSheet, getVolunteerTask, listAskAgain } from "./organiser";
 import { EMAIL_ASK_MAX, notifyMembers } from "./notify";
-import { monthsBefore } from "./purge";
 import { forgetStopped, recordStopped, stoppedAmong } from "./stopped";
 import { CAN_DO, CAN_DO_FOR_KIND, HOW_OFTEN_DAYS, type CanDo } from "@/lib/can-do";
 import { contactsOf, memberInput, pauseInput } from "./roster-input";
@@ -60,6 +59,16 @@ export type MemberView = {
 };
 
 // ─── how often each person has helped ───────────────────────────────────────────────────
+
+/** `date` minus whole months (a 29 February clamps to the 28th). */
+export function monthsBefore(date: string, months: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const total = y * 12 + (m - 1) - months;
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
 
 type Keyed = Pick<Member, "id" | "emailKey" | "mobileKey" | "lastHelpedOn" | "helpedCount">;
 export type Helped = { last: string | null; count12: number };
@@ -217,7 +226,7 @@ export async function pauseMember(db: Db, actor: Actor, id: unknown, until: unkn
   await db.update(visitingList).set({ visitorMemberId: null, visitorSetBy: null }).where(eq(visitingList.visitorMemberId, member.id));
 }
 
-/** Mark as left: no more asks, "ask me again" ticks are turned off, a hash of their contact is kept, and their details are deleted 30 days later. */
+/** Mark as left: no more asks, "ask me again" ticks are turned off, and a hash of their contact is kept. Their details are kept too. */
 export async function markMemberLeft(db: Db, actor: Actor, id: unknown, now: Date = new Date()): Promise<void> {
   const member = await load(db, actor, id);
   if (member.contactPurgedAt || member.status === "left") return;
@@ -442,29 +451,16 @@ export async function emailAsk(db: Db, actor: Actor, target: AskTarget, memberId
 
 // ─── upkeep, for the daily job ──────────────────────────────────────────────────────────
 
-/** How long a member's details are kept after they leave. */
-export const LEFT_RETENTION_DAYS = 30;
-
 /**
- * Daily: members paused until today or earlier become active; members who left 30 or more days ago lose their
- * contact details, last name, availability, area and notes (the row keeps the first name and a count of times
- * helped); last-helped dates are refreshed from claims and meal sign-ups. No actor; counts only.
+ * Daily: members paused until today or earlier become active; sign-ups still pending after 14 days are deleted;
+ * last-helped dates are refreshed from claims and meal sign-ups. Members who left keep their details, with no timer
+ * (Daniel, 2026-11-25: "Keep everything"). No actor; counts only.
  */
-export async function rosterUpkeep(db: Db, now: Date = new Date()): Promise<{ unpaused: number; purged: number; refreshed: number; pendingDeleted: number }> {
+export async function rosterUpkeep(db: Db, now: Date = new Date()): Promise<{ unpaused: number; refreshed: number; pendingDeleted: number }> {
   const today = chicagoToday(now);
   const unpaused = await db.update(corpsMembers).set({ status: "active", pausedUntil: null }).where(and(eq(corpsMembers.status, "paused"), isNotNull(corpsMembers.pausedUntil), lte(corpsMembers.pausedUntil, today))).returning({ id: corpsMembers.id });
   const pendingCutoff = new Date(now.getTime() - PENDING_DAYS * 86_400_000);
   const dropped = await db.delete(corpsMembers).where(and(eq(corpsMembers.status, "pending"), lte(corpsMembers.createdAt, pendingCutoff))).returning({ id: corpsMembers.id });
-  const cutoff = new Date(now.getTime() - LEFT_RETENTION_DAYS * 86_400_000);
-  const due = await db.select().from(corpsMembers).where(and(eq(corpsMembers.status, "left"), isNull(corpsMembers.contactPurgedAt), lte(corpsMembers.leftAt, cutoff)));
-  const dueStats = await helpStats(db, due, today);
-  for (const m of due) {
-    await db.update(visitingList).set({ visitorMemberId: null, visitorSetBy: null }).where(eq(visitingList.visitorMemberId, m.id));
-    await db
-      .update(corpsMembers)
-      .set({ lastName: null, email: null, mobile: null, emailKey: null, mobileKey: null, availability: null, area: null, coordinatorNotes: null, stopTokenHash: null, helpedCount: Math.max(m.helpedCount, dueStats.get(m.id)?.count12 ?? 0), lastHelpedOn: dueStats.get(m.id)?.last ?? m.lastHelpedOn, contactPurgedAt: now })
-      .where(eq(corpsMembers.id, m.id));
-  }
   const live = await db.select().from(corpsMembers).where(and(isNull(corpsMembers.contactPurgedAt), sql`${corpsMembers.status} not in ('left', 'pending')`));
   const stats = await helpStats(db, live, today);
   let refreshed = 0;
@@ -475,5 +471,5 @@ export async function rosterUpkeep(db: Db, now: Date = new Date()): Promise<{ un
       refreshed++;
     }
   }
-  return { unpaused: unpaused.length, purged: due.length, refreshed, pendingDeleted: dropped.length };
+  return { unpaused: unpaused.length, refreshed, pendingDeleted: dropped.length };
 }

@@ -1,11 +1,11 @@
 /**
  * Small daily tidying, counts only: capture tokens nobody has used for 180 days are
- * revoked; rate-limit counters past their window are deleted; and a count of senders'
- * details kept past their 30 days. (A decided proposal keeps its words: Daniel, 2026-11-25.)
+ * revoked; rate-limit counters past their window are deleted; set-aside suggestions are
+ * dropped. (A decided proposal keeps its words, and a sender's name and email are kept:
+ * Daniel, 2026-11-25.)
  */
-import { and, count, isNotNull, isNull, like, lt, lte, not, or, sql } from "drizzle-orm";
-import { REPORTER_KEEP_DAYS } from "@/server/care/reporter";
-import { captureTokens, mealRateLimits, proposals, suggestionDismissals } from "@/server/db/schema";
+import { and, isNull, like, lt, lte, not, or, sql } from "drizzle-orm";
+import { captureTokens, mealRateLimits, suggestionDismissals } from "@/server/db/schema";
 import { DISMISS_KEEP_DAYS } from "@/server/care/suggestions";
 import type { Db } from "@/server/db/types";
 import { DAY_MS, HOUR_MS } from "@/server/lifecycle/window";
@@ -40,13 +40,4 @@ export async function purgeOldDismissals(db: Db, now: Date): Promise<number> {
     .where(lt(suggestionDismissals.dismissedAt, new Date(now.getTime() - DISMISS_KEEP_DAYS * DAY_MS)))
     .returning({ id: suggestionDismissals.subjectId });
   return gone.length;
-}
-
-/** Proposals still holding a sender's name or email more than 30 days after the decision: expected to be 0. Counted, never read. */
-export async function countStaleReporters(db: Db, now: Date): Promise<number> {
-  const [row] = await db
-    .select({ n: count() })
-    .from(proposals)
-    .where(and(isNotNull(proposals.reporterEmail), lt(proposals.decidedAt, new Date(now.getTime() - REPORTER_KEEP_DAYS * DAY_MS))));
-  return row?.n ?? 0;
 }

@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import { renderToStaticMarkup } from "react-dom/server";
 import webpush from "web-push";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,13 +7,11 @@ import { type Actor } from "@/server/access/policy";
 import { addAgendaEntry, listAgenda } from "@/server/care/agenda";
 import { createCareItem } from "@/server/care/care-items";
 import { createFollowUp } from "@/server/care/follow-ups";
-import { createPublicProposal } from "@/server/care/intake";
 import { MAX_OFFSET, searchNotes } from "@/server/care/notes-search";
 import { createOutsidePerson, updateOutsidePerson } from "@/server/care/outside-people";
 import { createProposal } from "@/server/care/proposals";
 import { runDailyJob } from "@/server/daily/run";
-import { countStaleReporters } from "@/server/daily/housekeeping";
-import { agendaEntries, auditLog, proposals } from "@/server/db/schema";
+import { agendaEntries, auditLog } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { noticeUrgentProposal } from "@/server/notify/notify";
 import { savePrefs } from "@/server/notify/prefs";
@@ -72,7 +69,7 @@ describe("audit of restricted reads", () => {
 });
 
 describe("the public form says what is kept", () => {
-  it("shows the keep-for-30-days sentence under the question", () => {
+  it("shows what is kept under the question", () => {
     const html = renderToStaticMarkup(<TellForm stamp="x" />);
     expect(html).toContain('data-testid="tell-keep"');
     expect(html.replace(/&#x27;|&apos;/g, "'")).toContain(TELL_KEEP.replace(/&/g, "&amp;"));
@@ -101,13 +98,6 @@ describe("retention", () => {
       await after(days);
       expect((await db.select().from(agendaEntries)).map((e) => e.why).sort()).toEqual(["person words", "some words"]);
     }
-  });
-
-  it("counts reporter rows past 30 days (expected 0 once the job has run)", async () => {
-    const id = await createPublicProposal(db, { rawText: "w", intake: { kind: "public_form", about: "a", sender: "b", contact: "b@x.test" }, mayTellThem: "yes", miSheberach: "no" });
-    await db.update(proposals).set({ status: "accepted", decidedAt: NOW, reporterName: "b", reporterEmail: "b@x.test" }).where(eq(proposals.id, id));
-    expect(await countStaleReporters(db, new Date(NOW.getTime() + 29 * DAY))).toBe(0);
-    expect(await countStaleReporters(db, new Date(NOW.getTime() + 31 * DAY))).toBe(1);
   });
 });
 

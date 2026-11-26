@@ -5,10 +5,11 @@
  * when, ok or the error's NAME only, and counts only. Nothing here logs a name,
  * a note or a token.
  *
- * Daniel, 2026-11-25: "I want it all kept." Nothing here clears or deletes what clergy wrote or
- * were told: care notes, the words of a report, agenda entries and Mitzvah Corps referrals are
- * not on a timer. The clean-ups that remain concern volunteers', helpers' and senders' contact
- * details and operational rows (tokens, counters, logs).
+ * Daniel, 2026-11-25: "I want it all kept" and "Keep everything". Nothing here clears or deletes
+ * what clergy wrote or were told (care notes, the words of a report, agenda entries, Mitzvah Corps
+ * referrals, the visiting list), nor anyone's name or contact details: volunteers, meal helpers,
+ * senders of the public form and roster members who left keep theirs. The clean-ups that remain
+ * concern notes on sign-ups, public links and operational rows (tokens, counters, logs).
  */
 import { and, desc, eq, inArray, isNull, ne, notExists } from "drizzle-orm";
 import { canSeeJobRuns, deny, type Actor } from "@/server/access/policy";
@@ -26,9 +27,7 @@ import { purgeMealData } from "@/server/meals/purge";
 import { purgeVolunteerData } from "@/server/volunteers/purge";
 import { rosterUpkeep } from "@/server/volunteers/roster";
 import { lapseReferrals } from "@/server/volunteers/referrals";
-import { purgeVisiting } from "@/server/volunteers/visiting";
-import { countStaleReporters, pruneRateLimits, purgeOldDismissals, revokeIdleCaptureTokens } from "./housekeeping";
-import { purgeReporters } from "@/server/care/reporter";
+import { pruneRateLimits, purgeOldDismissals, revokeIdleCaptureTokens } from "./housekeeping";
 import { flushHeld, noticeCoveringTomorrow, noticeUnfilledAsks, purgeNotificationLog } from "@/server/notify/notify";
 import { pushSummaryChannel } from "@/server/notify/summary-channel";
 import { purgeRevoked } from "@/server/notify/subscriptions";
@@ -67,16 +66,14 @@ export const DAILY_TASKS: readonly DailyTask[] = [
   { key: "meal_purge", run: async ({ db, now }) => purgeMealData(db, now) },
   { key: "volunteer_purge", run: async ({ db, now }) => purgeVolunteerData(db, now) },
   { key: "roster_upkeep", run: async ({ db, now }) => rosterUpkeep(db, now) },
-  { key: "visiting_purge", run: async ({ db, now }) => purgeVisiting(db, now) },
   { key: "corps_referral_lapse", run: async ({ db, now }) => lapseReferrals(db, now) },
   { key: "mi_sheberach_expiry", run: async ({ db, now }) => expireDueEntries(db, now) },
   { key: "mi_sheberach_sync", run: packetSync },
   { key: "standing_check_ins", run: standingSafetyNet },
   {
     key: "housekeeping",
-    run: async ({ db, now }) => ({ tokensRevoked: await revokeIdleCaptureTokens(db, now), rateLimitRowsDeleted: await pruneRateLimits(db, now), staleReporters: await countStaleReporters(db, now), suggestionsPurged: await purgeOldDismissals(db, now).catch(() => 0), emailLogDeleted: await purgeEmailLog(db, now).catch(() => 0) }),
+    run: async ({ db, now }) => ({ tokensRevoked: await revokeIdleCaptureTokens(db, now), rateLimitRowsDeleted: await pruneRateLimits(db, now), suggestionsPurged: await purgeOldDismissals(db, now).catch(() => 0), emailLogDeleted: await purgeEmailLog(db, now).catch(() => 0) }),
   },
-  { key: "clergy_upkeep", run: async ({ db, now }) => ({ reportersCleared: (await purgeReporters(db, now)).cleared }) },
   { key: "cover_notice", run: async ({ db, now, owners }) => ({ sent: await noticeCoveringTomorrow(db, now, owners) }) },
   { key: "volunteer_asks_notice", run: async ({ db, now, owners }) => ({ ...(await noticeUnfilledAsks(db, now, owners)) }) },
   {

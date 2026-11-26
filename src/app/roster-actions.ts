@@ -61,7 +61,7 @@ export async function markLeftAction(_prev: ActionState, form: FormData): Promis
   const f = fields(form);
   return runAction(await getViewer(), async (actor, db) => {
     await markMemberLeft(db, actor, f.memberId);
-    return "Marked as left. Their contact details will be deleted in 30 days.";
+    return "Marked as left. Their contact details are kept.";
   });
 }
 

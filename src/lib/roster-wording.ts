@@ -30,7 +30,7 @@ export const JOIN_REFUSED = {
 export type JoinReason = keyof typeof JOIN_REFUSED;
 
 export const STOP_HEADING = "Stop asking me";
-export const STOP_EXPLAIN = "If you stop, Mitzvah Corps will not ask you to help again, and your details are deleted within a month. Thank you for all you have done.";
+export const STOP_EXPLAIN = "If you stop, Mitzvah Corps will not ask you to help again. The congregation keeps your contact details. Thank you for all you have done.";
 export const STOP_BUTTON = "Yes, stop asking me";
 export const STOP_DONE_HEADING = "You are off the list";
 export const STOP_DONE = "We will not ask you again. Thank you for the help you gave, and for being willing.";

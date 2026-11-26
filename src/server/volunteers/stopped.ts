@@ -1,7 +1,7 @@
 /**
  * People who stopped, or were taken off the roster. When it happens: their "you may ask me again" ticks on volunteer
  * claims and meal sign-ups are turned off, and a salted hash of each contact key is kept (never the contact), so that
- * after the 30-day purge they are still never offered as a past helper or re-added silently. The salt is derived
+ * even once their details are gone (removed on request, or by a purge before 2026-11-25) they are still never offered as a past helper or re-added silently. The salt is derived
  * from the app's auth secret, so the table cannot be turned back into contacts without it.
  */
 import { createHmac } from "node:crypto";

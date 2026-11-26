@@ -336,7 +336,7 @@ describe("I can do this every time", () => {
     expect(secret.id).toBeTruthy();
   });
 
-  it("each claim loses its name and contact on its own date plus thirty days, given-back ones too; only the set's personal link lives to the last date", async () => {
+  it("each claim keeps its name and contact after thirty days, given-back ones too; the set's personal link lives to the last date", async () => {
     const { rows } = await tokens(3);
     const r = await claimEveryTime(db, rows[0].publicToken, vol(), meta(), NOW);
     if (!r.ok) throw new Error("setup");
@@ -353,13 +353,11 @@ describe("I can do this every time", () => {
     // 5 January: 2 and 9 December are thirty days old (the second one was given back), 16 December is not.
     const jan = new Date("2027-01-12T18:00:00Z");
     await purgeVolunteerData(db, jan);
-    const [c1, c2, c3] = await byDate();
-    expect([c1.contact, c2.contact]).toEqual([null, null]);
-    expect(c3.contact).toBe("sam@example.test");
+    expect((await byDate()).map((c) => c.contact)).toEqual(["sam@example.test", "sam@example.test", "sam@example.test"]);
     // The set's last date, 16 December, has passed, so the personal link has gone with the first claim's purge.
     expect(await getMySeries(db, r.manageToken, jan)).toBeNull();
     await purgeVolunteerData(db, new Date("2027-01-20T18:00:00Z"));
-    expect((await bare()).every((c) => c.contact === null && c.manageTokenHash === null)).toBe(true);
+    expect((await bare()).every((c) => c.contact === "sam@example.test" && c.manageTokenHash === null)).toBe(true);
   });
 
   it("N5: the cookie id is removed from every claim that is purged", async () => {
@@ -373,7 +371,7 @@ describe("I can do this every time", () => {
     expect((await db.select().from(volunteerClaims)).every((c) => c.personRef === null)).toBe(true);
   });
 
-  it("while a date is still to come, the personal link lives on though early claims have lost their names", async () => {
+  it("while a date is still to come, the personal link lives on; early claims keep their names", async () => {
     const s2 = await series({ count: 6, forLabel: "Long" });
     const long = (await db.select().from(volunteerTasks).where(eq(volunteerTasks.seriesId, s2.seriesId))).sort((a, b) => a.taskDate.localeCompare(b.taskDate));
     const r = await claimEveryTime(db, long[0].publicToken, vol(), meta(), NOW);
@@ -383,7 +381,8 @@ describe("I can do this every time", () => {
     await purgeVolunteerData(db, day);
     const claims = await db.select().from(volunteerClaims);
     const first = claims.find((c) => c.taskId === long[0].id)!;
-    expect(first.contact).toBeNull();
+    expect(first.contact).toBe("sam@example.test");
+    expect(first.note).toBeNull();
     // The series runs to 6 January, so the personal link still works on 4 January.
     expect(await getMySeries(db, r.manageToken, day)).not.toBeNull();
     expect(first.manageTokenHash).not.toBeNull();

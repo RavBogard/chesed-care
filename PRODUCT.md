@@ -98,9 +98,18 @@ Decided by Daniel on 2026-11-25. Asked whether a report's words should be refuse
 - **Mitzvah Corps referrals** that have closed are kept, with the lead's one line.
 - One exception, unchanged: when a rabbi leaves the clergy or is deactivated, their own unreviewed captures (which only they could ever have reviewed) are dismissed and their words erased.
 
-The timers that remain concern other people's contact details and operational records, not what clergy wrote:
-- A public sender's name and contact: cleared when their report is decided, except the name and email of a sender who agreed to be thanked, kept 30 days after the decision.
-- Volunteers' and meal helpers' sign-up contact details, and people who left the volunteer roster: as before.
+**Contact details** are kept too. Decided by Daniel on 2026-11-25, asked about the timers on the contact details of people outside the staff: "Keep everything." The congregation keeps them so the rabbis and the Mitzvah Corps lead can reach the person again. The public pages say the congregation keeps them and promise no removal (Daniel, 2026-11-26); there is no removal button. These replace the earlier timers:
+- Volunteers who claim a task keep their name and contact (it was cleared a month after the date, or 24 months later for "you may ask me again").
+- Meal helpers keep their name and email (it was cleared a month after the page ended, unless they ticked "you may ask me again").
+- A public sender who agreed to be thanked keeps their name and email on the accepted report (it was cleared 30 days after the decision).
+- Roster members who left keep their details (they were cleared 30 days after leaving). They are still never asked again.
+- Visiting list entries that were taken off the list are kept, with their visits (they were deleted 30 days later).
+"You may ask me again" still decides who is offered as a past helper; it no longer decides what is kept.
+
+The timers that remain concern words on sign-ups, public links and operational records:
+- A public sender's name and contact as stated in the report are cleared when a rabbi decides it, except the name and email of a sender who agreed to be thanked.
+- A month after a task's date or a meal page's end: the notes on sign-ups, what was being brought, the family's thanks, the page's or task's place and contact line, the blocks on it, a finished shiva sheet's "bringing" lines, and the public and personal links.
+- Volunteer sign-ups still pending after 14 days are deleted, as nobody accepted them.
 - A referral nobody took is withdrawn after 60 days; nothing written in it is erased.
 - Capture keys unused for 180 days, set-aside suggestions, rate-limit counters, and the email and notification logs: as before.
 

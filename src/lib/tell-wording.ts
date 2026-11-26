@@ -15,8 +15,8 @@ export const TELL_LABELS = {
 export const TELL_HELP_ANSWERS = { clergy: "Something the clergy should know", practical: "Practical help from Mitzvah Corps, like a meal, a ride or soup" } as const;
 /** Under the help choice: who sees a practical request. */
 export const TELL_HELP_NOTE = "The Mitzvah Corps coordinator sees practical requests as well as the clergy. Please leave out medical details.";
-/** Shown under the "May we tell them" question: what is kept of the sender, and for how long. */
-export const TELL_KEEP = "If we act on your message, we keep your name and email for 30 days so a member of the clergy can thank you, then delete them.";
+/** Shown under the "May we tell them" question: what is kept of the sender. */
+export const TELL_KEEP = "If we act on your message, we keep your name and email so the rabbis can thank you and reach you again.";
 export const TELL_ANSWERS = { yes: "Yes", no: "No", not_sure: "Not sure" } as const;
 export const TELL_SUBMIT = "Send to the clergy";
 export const TELL_SENDING = "Sending";

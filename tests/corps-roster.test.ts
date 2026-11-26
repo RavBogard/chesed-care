@@ -177,7 +177,7 @@ describe("the stop-asking link", () => {
     expect((await db.select().from(corpsMembers))[0].status).toBe("active");
   });
 
-  it("on stop or left, the ask-me-again ticks are turned off, and a hash (not the contact) outlives the purge so they are never offered or re-added", async () => {
+  it("on stop or left, the ask-me-again ticks are turned off, a hash (not the contact) is kept, and the member keeps their details so they are never offered or re-added", async () => {
     const task = await post();
     await claimTask(db, task.publicToken!, { firstName: "Dana", lastName: "Lev", contact: "Dana@Example.test", mayAskAgain: true }, meta(), NOW);
     const page = await livePage(db, t.lead);
@@ -190,19 +190,20 @@ describe("the stop-asking link", () => {
     const hashes = await db.select().from(corpsStoppedContacts);
     expect(hashes).toHaveLength(1);
     expect(JSON.stringify(hashes)).not.toContain("dana");
-    // The row is purged, yet she is not offered as a past helper even if a tick came back, and nobody can add her by hand.
+    // Her row and details are kept; she is not offered as a past helper even if a tick came back, and nobody can add her by hand.
+    expect((await db.select().from(corpsMembers))[0]).toMatchObject({ status: "left", email: "dana@example.test", contactPurgedAt: null });
     await db.update(volunteerClaims).set({ mayAskAgain: true });
     await db.update(mealSignups).set({ mayContactAgain: true });
     expect(await listPastHelperCandidates(db, t.lead, at(41))).toEqual([]);
     await expect(addMember(db, t.lead, member({ email: "Dana@example.test" }), at(41))).rejects.toBeInstanceOf(InvalidInput);
-    // Joining again only raises a flag on a fresh pending row, which a coordinator must confirm.
+    // Joining again only raises a flag on her kept row: no new row, and she stays left until a coordinator brings her back.
     await submitJoin(db, form({ contact: "dana@example.test" }), meta(), at(41));
-    const fresh = (await db.select().from(corpsMembers)).find((r) => r.contactPurgedAt === null)!;
-    expect(fresh).toMatchObject({ status: "pending", stoppedBy: "self" });
-    expect(fresh.askedToJoinAgainAt).not.toBeNull();
-    await expect(acceptMember(db, t.lead, fresh.id)).rejects.toBeInstanceOf(InvalidInput);
+    const rows = await db.select().from(corpsMembers);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "left", stoppedBy: "coordinator" });
+    expect(rows[0].askedToJoinAgainAt).not.toBeNull();
     expect(await acceptAllPending(db, t.lead)).toBe(0);
-    await acceptMember(db, t.lead, fresh.id, { confirmed: true });
+    await reactivateMember(db, t.lead, m.id);
     expect((await db.select().from(corpsStoppedContacts))).toHaveLength(0);
   });
 });
@@ -375,18 +376,16 @@ describe("the daily upkeep", () => {
     expect((await db.select().from(corpsMembers))[0]).toMatchObject({ status: "active", pausedUntil: null });
   });
 
-  it("deletes a left member's contact details after 30 days, not at 29, keeping the first name and a count", async () => {
+  it("keeps a left member's details however long ago they left (Keep everything), and never asks them", async () => {
     const m = await addMember(db, t.lead, member({ availability: "Sundays", area: "63105", coordinatorNotes: "Prefers texts" }), NOW);
     await markMemberLeft(db, t.lead, m.id, NOW);
-    expect(await rosterUpkeep(db, at(29))).toMatchObject({ purged: 0 });
-    expect((await db.select().from(corpsMembers))[0].email).toBe("avi@example.test");
-    expect(await rosterUpkeep(db, at(31))).toMatchObject({ purged: 1 });
+    for (const days of [31, 400]) await rosterUpkeep(db, at(days));
     const [row] = await db.select().from(corpsMembers);
-    expect(row).toMatchObject({ firstName: "Avi", status: "left", lastName: null, email: null, mobile: null, emailKey: null, mobileKey: null, availability: null, area: null, coordinatorNotes: null, stopTokenHash: null });
-    expect(row.contactPurgedAt).not.toBeNull();
-    // A purged member cannot be brought back or edited: they are added afresh.
-    await expect(reactivateMember(db, t.lead, m.id)).rejects.toBeInstanceOf(InvalidInput);
-    await expect(updateMember(db, t.lead, m.id, member(), at(32))).rejects.toBeInstanceOf(InvalidInput);
+    expect(row).toMatchObject({ firstName: "Avi", status: "left", email: "avi@example.test", availability: "Sundays", area: "63105", coordinatorNotes: "Prefers texts", contactPurgedAt: null });
+    expect(await listAskCandidates(db, t.lead, { taskId: (await post()).id }, at(400))).toEqual([]);
+    // A coordinator can still bring them back.
+    await reactivateMember(db, t.lead, m.id);
+    expect((await db.select().from(corpsMembers))[0].status).toBe("active");
   });
 });
 

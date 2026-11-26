@@ -117,7 +117,7 @@ export default async function VolunteerTaskPage({ params }: { params: Promise<{ 
                 values={{ kind: task.kind, forLabel: task.forLabel, needed: task.needed, date: task.date, timeWindow: task.timeWindow ?? "", place: task.place ?? "", peopleNeeded: String(task.peopleNeeded), contactLine: task.contactLine ?? "" }}
               />
             </Sheet>
-            <ConfirmAction action={doneTaskAction} fields={{ taskId: task.id }} label="Mark done" title="Mark this task done?" explain="The link stops working. Volunteers keep their own pages until a month after the date." confirmLabel="Mark done" />
+            <ConfirmAction action={doneTaskAction} fields={{ taskId: task.id }} label="Mark done" title="Mark this task done?" explain="The link stops working. Volunteers keep their own pages until a month after the date. Their names and contacts are kept." confirmLabel="Mark done" />
             <ConfirmAction action={cancelTaskAction} fields={{ taskId: task.id }} label="Cancel the task" title="Cancel this task?" explain="The link stops working at once. Anyone who signed up will see, on their own page, that it was cancelled." confirmLabel="Cancel the task" />
           </div>
         ) : null}

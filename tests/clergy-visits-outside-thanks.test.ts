@@ -8,7 +8,8 @@ import { createFollowUp } from "@/server/care/follow-ups";
 import { createPublicProposal } from "@/server/care/intake";
 import { createOutsidePerson, getOutsidePerson, updateOutsidePerson } from "@/server/care/outside-people";
 import { acceptProposal } from "@/server/care/proposals";
-import { getReporterLines, purgeReporters, reporterToKeep } from "@/server/care/reporter";
+import { getReporterLines, reporterToKeep } from "@/server/care/reporter";
+import { DAILY_TASKS, runDailyJob } from "@/server/daily/run";
 import { NotFound } from "@/server/care/validate";
 import { listVisits, markVisited, placeKey, setVisitLocation } from "@/server/care/visits";
 import { auditLog, careItems, proposals } from "@/server/db/schema";
@@ -142,13 +143,12 @@ describe("thank the person who told us", () => {
     expect(thankYouMailto("a+b@x.test")).not.toMatch(/\s/);
   });
 
-  it("forgets the sender 30 days after the decision, and keeps nothing for a no", async () => {
+  it("keeps the sender after the daily job has run long after the decision, and keeps nothing for a no", async () => {
     const yes = await publicAccepted("yes");
-    expect((await purgeReporters(db, new Date(NOW.getTime() + 29 * 86_400_000))).cleared).toBe(0);
-    expect((await purgeReporters(db, new Date(NOW.getTime() + 31 * 86_400_000))).cleared).toBe(1);
-    expect((await getReporterLines(db, t.clergy, [yes.itemId])).size).toBe(0);
+    await runDailyJob({ db, now: new Date(NOW.getTime() + 400 * 86_400_000), owners: new Set(), origin: null }, DAILY_TASKS.filter((x) => x.key !== "helper_reminders" && x.key !== "mi_sheberach_sync"));
+    expect((await getReporterLines(db, t.clergy, [yes.itemId])).size).toBe(1);
     const rows = await db.select().from(proposals);
-    expect(rows.every((p) => p.reporterEmail === null)).toBe(true);
+    expect(rows.some((p) => p.reporterEmail !== null)).toBe(true);
     expect(reporterToKeep({ channel: "form", mayTellThem: "no", intake: { kind: "public_form", about: "a", sender: "b", contact: "c@d.test" } })).toBeNull();
   });
 });

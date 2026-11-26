@@ -242,7 +242,7 @@ export const proposals = pgTable(
     mayTellThem: text("may_tell_them"),
     /** Public form: the Mi Sheberach consent answer, yes | no | not_sure. Kept after the decision, for the stage that adds the name to the list. */
     miSheberachAnswer: text("mi_sheberach_answer"),
-    /** Public form, accepted, and the sender agreed we may say they told us: their name and email, kept 30 days after the decision for a thank-you from the clergy member's own mail app (src/server/care/reporter.ts). */
+    /** Public form, accepted, and the sender agreed we may say they told us: their name and email, kept (Daniel, 2026-11-25: "Keep everything") for a thank-you from the clergy member's own mail app (src/server/care/reporter.ts). */
     reporterName: text("reporter_name"),
     reporterEmail: text("reporter_email"),
     /** Public form: the sender chose "Practical help from Mitzvah Corps". */
@@ -450,8 +450,8 @@ export const mealSlots = pgTable(
 );
 
 /**
- * A helper's sign-up for one slot. Name, email and notes are cleared by the purge
- * (src/server/meals/purge.ts), so they are nullable. The manage token is stored hashed.
+ * A helper's sign-up for one slot. Notes are cleared by the purge (src/server/meals/purge.ts); name and
+ * email are kept, but are nullable as purges before 2026-11-25 cleared them. The manage token is stored hashed.
  */
 export const mealSignups = pgTable(
   "meal_signups",
@@ -614,7 +614,7 @@ export const volunteerTasks = pgTable(
   ],
 );
 
-/** A volunteer's claim. Contact details are cleared by the purge unless they ticked "ask me again". The personal token is stored only as its hash. */
+/** A volunteer's claim. Name and contact are kept (purges before 2026-11-25 cleared some); notes are cleared by the purge. The personal token is stored only as its hash. */
 export const volunteerClaims = pgTable(
   "volunteer_claims",
   {
@@ -873,7 +873,7 @@ export const corpsMembers = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     firstName: text("first_name").notNull(),
-    /** Contact, last name, availability, area and notes are deleted 30 days after the member leaves. */
+    /** Contact, last name, availability, area and notes are kept after the member leaves (before 2026-11-25 they were deleted 30 days later). */
     lastName: text("last_name"),
     email: text("email"),
     mobile: text("mobile"),
@@ -897,7 +897,7 @@ export const corpsMembers = pgTable(
     source: corpsMemberSource("source").notNull(),
     joinedOn: date("joined_on").notNull(),
     lastHelpedOn: date("last_helped_on"),
-    /** Kept at the purge, when the claims that made it can no longer be matched. */
+    /** Times helped, kept on the row for members whose claims can no longer be matched (those cleared before 2026-11-25). */
     helpedCount: integer("helped_count").notNull().default(0),
     consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
     /** Only the hash of the "stop asking me" link is stored. */
@@ -938,8 +938,9 @@ export const corpsAsks = pgTable(
 );
 
 /**
- * Salted hashes of the contacts of people who stopped or were taken off (never the contact itself), kept past the
- * 30-day purge so they are not offered again as past helpers or re-added silently.
+ * Salted hashes of the contacts of people who stopped or were taken off (never the contact itself), kept even when
+ * their details are gone (removed on request, or by a purge before 2026-11-25) so they are not offered again as past
+ * helpers or re-added silently.
  */
 export const corpsStoppedContacts = pgTable("mitzvah_corps_stopped_contacts", {
   hash: text("hash").primaryKey(),
@@ -949,7 +950,7 @@ export const corpsStoppedContacts = pgTable("mitzvah_corps_stopped_contacts", {
 /**
  * The standing visiting list: members (often in care homes) whom vetted volunteers visit. Clergy decide who is on it; the
  * lead assigns a regular visitor and logs visits. It holds NO health information: a place, a contact line and a note for the visitor.
- * The person is a Salesforce contact or an outside person, with the name cached. Deleted 30 days after it ends.
+ * The person is a Salesforce contact or an outside person, with the name cached. Kept after it ends.
  */
 export const visitingList = pgTable(
   "visiting_list",

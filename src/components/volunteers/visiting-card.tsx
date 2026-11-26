@@ -113,7 +113,7 @@ export function VisitingCard({ entry, choices, today, canManage }: { entry: Visi
                 </button>
               </ActionForm>
             </Sheet>
-            <ConfirmAction action={endVisitingEntryAction} fields={{ entryId: entry.id }} label="Take off the list" ariaLabel={`Take ${entry.name} off the visiting list`} title={`Take ${entry.name} off the list?`} explain="They are no longer shown here, and the entry and its visits are deleted after 30 days." confirmLabel="Take off the list" />
+            <ConfirmAction action={endVisitingEntryAction} fields={{ entryId: entry.id }} label="Take off the list" ariaLabel={`Take ${entry.name} off the visiting list`} title={`Take ${entry.name} off the list?`} explain="They are no longer shown here. The entry and its visits are kept." confirmLabel="Take off the list" />
           </>
         ) : null}
       </div>

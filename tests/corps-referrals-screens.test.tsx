@@ -207,13 +207,13 @@ describe("the coordinator home", () => {
 });
 
 describe("settings", () => {
-  it("the daily job's tasks have plain labels, and none says that notes, agenda entries or referrals are deleted", async () => {
+  it("the daily job's tasks have plain labels, and none says that notes, agenda entries, referrals or contact details are deleted", async () => {
     as(t.owner);
     const { runDailyJob, DAILY_TASKS } = await import("@/server/daily/run");
     await runDailyJob({ db, now: NOW, owners: new Set(["owner@example.test"]), origin: null }, DAILY_TASKS.filter((x) => x.key !== "helper_reminders"));
     const out = await html(AdminPage());
     expect(out).toContain("Mitzvah Corps referrals nobody took, withdrawn");
-    expect(out).toContain("Thank-you details cleared after 30 days");
-    expect(out).not.toMatch(/Old notes deleted|Old agenda entries|referrals clean-up|note_retention|corps_referral_purge|agenda deleted/i);
+    expect(out).toContain("Mitzvah Meals clean-up: notes and old links");
+    expect(out).not.toMatch(/Old notes deleted|Old agenda entries|referrals clean-up|note_retention|corps_referral_purge|agenda deleted|Thank-you details cleared|visiting list entries deleted|clergy_upkeep|visiting_purge/i);
   });
 });

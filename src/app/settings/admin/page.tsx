@@ -35,8 +35,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · CRC Care" };
 
 const TASK_LABEL: Record<string, string> = {
-  meal_purge: "Mitzvah Meals clean-up",
-  volunteer_purge: "Volunteer tasks clean-up",
+  meal_purge: "Mitzvah Meals clean-up: notes and old links",
+  volunteer_purge: "Volunteer tasks clean-up: notes and old links",
   mi_sheberach_expiry: "Mi Sheberach names that came off",
   mi_sheberach_sync: "Mi Sheberach packet sync",
   standing_check_ins: "Standing check-ins",
@@ -44,10 +44,8 @@ const TASK_LABEL: Record<string, string> = {
   morning_summary: "Morning summaries",
   volunteer_asks_notice: "Volunteer asks that still need someone",
   push_upkeep: "Phone notifications clean-up",
-  clergy_upkeep: "Thank-you details cleared after 30 days",
   cover_notice: "Cover notices",
   roster_upkeep: "Roster clean-up",
-  visiting_purge: "Ended visiting list entries deleted",
   corps_referral_lapse: "Mitzvah Corps referrals nobody took, withdrawn",
   helper_reminders: "Day-before reminders",
 };

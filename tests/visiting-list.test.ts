@@ -7,7 +7,8 @@ import type { Db } from "@/server/db/types";
 import { createCareItem } from "@/server/care/care-items";
 import { fakeSf } from "./support/sf";
 import { addMember, markMemberLeft, pauseMember, rosterUpkeep } from "@/server/volunteers/roster";
-import { addToVisitingList, endVisitingEntry, listVisiting, listVisitorChoices, logVisit, purgeVisiting, setVisitor, updateVisitingEntry, visitingEntryFor } from "@/server/volunteers/visiting";
+import { addToVisitingList, endVisitingEntry, listVisiting, listVisitorChoices, logVisit, setVisitor, updateVisitingEntry, visitingEntryFor } from "@/server/volunteers/visiting";
+import { DAILY_TASKS, runDailyJob } from "@/server/daily/run";
 import { CONTACT, CONTACT2, reporters, team, testDb } from "./support/db";
 import { NOW } from "./support/meals";
 
@@ -126,7 +127,7 @@ describe("the regular visitor", () => {
     expect((await listVisiting(db, t.lead))[0].visitorMemberId).toBeNull();
   });
 
-  it("the purge of a member who left long ago also clears them", async () => {
+  it("a member who left is not shown as the visitor, even long after", async () => {
     const { id } = await add(t.clergy, entry());
     const m = await addMember(db, t.lead, member(), NOW);
     await setVisitor(db, t.lead, id, m.id, NOW);
@@ -157,17 +158,16 @@ describe("logging a visit", () => {
   });
 });
 
-describe("the daily purge", () => {
-  it("deletes an ended entry and its visits 30 days after it ended, and nothing else", async () => {
+describe("an ended entry", () => {
+  it("is kept with its visits however long ago it ended (Keep everything), and no longer listed", async () => {
     const { id } = await add(t.clergy, entry());
     const keep = await add(t.clergy, { outsidePersonId: (await outside("Other")).id, place: "Home" });
     await logVisit(db, t.lead, id, "2026-11-30", NOW);
     await endVisitingEntry(db, t.clergy, id, NOW);
-    expect(await purgeVisiting(db, at(29))).toEqual({ deleted: 0 });
+    await runDailyJob({ db, now: at(400), owners: new Set(), origin: null }, DAILY_TASKS.filter((x) => x.key !== "helper_reminders" && x.key !== "mi_sheberach_sync"));
     expect(await db.select().from(visitingVisits)).toHaveLength(1);
-    expect(await purgeVisiting(db, at(30))).toEqual({ deleted: 1 });
-    expect(await db.select().from(visitingVisits)).toHaveLength(0);
-    expect((await db.select().from(visitingList)).map((r) => r.id)).toEqual([keep.id]);
+    expect((await db.select().from(visitingList)).map((r) => r.id).sort()).toEqual([id, keep.id].sort());
+    expect((await listVisiting(db, t.lead, at(400))).map((e) => e.id)).toEqual([keep.id]);
   });
 });
 

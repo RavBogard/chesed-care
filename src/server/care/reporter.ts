@@ -1,17 +1,17 @@
 /**
  * "Told to us by": for a proposal from the public form that was accepted, whose sender gave an email AND answered yes to
  * "May we tell them you let us know?". Accepting a proposal clears the details the sender stated (the intake: who it is about, their name and contact; proposals.ts keeps only the words); this keeps only the
- * sender's own name and email, for 30 days after the decision, so a clergy member can thank them from their OWN mail app.
+ * sender's own name and email, with no timer (Daniel, 2026-11-25: "Keep everything"), so a clergy member can thank them from
+ * their OWN mail app and the rabbis can reach them again.
  * Nothing is sent by this app. The line is shown only to those who fully see the accepted care item (careItemVisibleWhere,
  * so a restricted item's line exists only for those with access).
  */
-import { and, eq, isNotNull, lt } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { canSeeReporterLine, careItemVisibleWhere, type Actor } from "@/server/access/policy";
 import { careItems, proposals } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { storedIntake } from "./intake";
 
-export const REPORTER_KEEP_DAYS = 30;
 const EMAIL = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
 
 type Row = typeof proposals.$inferSelect;
@@ -36,19 +36,7 @@ export async function getReporterLines(db: Db, actor: Actor, careItemIds: string
     .select({ itemId: careItems.id, name: proposals.reporterName, email: proposals.reporterEmail })
     .from(proposals)
     .innerJoin(careItems, eq(careItems.id, proposals.resultCareItemId))
-    .where(and(eq(proposals.status, "accepted"), eq(proposals.mayTellThem, "yes"), isNotNull(proposals.reporterEmail), isNotNull(proposals.reporterName), careItemVisibleWhere(actor)));
-  const wanted = new Set(careItemIds);
-  for (const r of rows) if (wanted.has(r.itemId) && r.name && r.email) out.set(r.itemId, { name: r.name, email: r.email });
+    .where(and(inArray(careItems.id, careItemIds), eq(proposals.status, "accepted"), eq(proposals.mayTellThem, "yes"), isNotNull(proposals.reporterEmail), isNotNull(proposals.reporterName), careItemVisibleWhere(actor)));
+  for (const r of rows) if (r.name && r.email) out.set(r.itemId, { name: r.name, email: r.email });
   return out;
-}
-
-/** The daily job: forget a sender's name and email 30 days after the decision. Counts only. */
-export async function purgeReporters(db: Db, now: Date): Promise<{ cleared: number }> {
-  const cutoff = new Date(now.getTime() - REPORTER_KEEP_DAYS * 86_400_000);
-  const gone = await db
-    .update(proposals)
-    .set({ reporterName: null, reporterEmail: null })
-    .where(and(isNotNull(proposals.reporterEmail), lt(proposals.decidedAt, cutoff)))
-    .returning({ id: proposals.id });
-  return { cleared: gone.length };
 }

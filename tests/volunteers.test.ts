@@ -29,7 +29,8 @@ import {
   updateVolunteerTask,
 } from "@/server/volunteers/organiser";
 import { MAX_BRINGING, addBringing, cancelMyClaim, claimIcs, claimOnSheet, claimTask, getMyClaim, getPublicBoard, getPublicSheet, getPublicTask, markMyClaimDone, VOLUNTEER_LIMITS } from "@/server/volunteers/public";
-import { monthsBefore, purgeVolunteerData } from "@/server/volunteers/purge";
+import { purgeVolunteerData } from "@/server/volunteers/purge";
+import { monthsBefore } from "@/server/volunteers/roster";
 import { ACCOUNT, addActor, CONTACT, reporters, team, testDb } from "./support/db";
 import { meta, NOW } from "./support/meals";
 import { words } from "./support/words";
@@ -496,7 +497,7 @@ describe("the daily purge", () => {
     return { ...view, token: view.publicToken! };
   }
 
-  it("deletes contact details 30 days after the task date, keeps those who said ask me again, and not a day sooner", async () => {
+  it("clears notes and links 30 days after the task date, not a day sooner, and keeps every name and contact", async () => {
     const young = await dated(-29, { peopleNeeded: 3 });
     const old = await dated(-31, { peopleNeeded: 3 });
     const edge = await dated(-30, { peopleNeeded: 3 });
@@ -515,9 +516,9 @@ describe("the daily purge", () => {
     ]);
     for (const task of [old, edge]) {
       expect(await state(task)).toEqual([
-        { first: null, contact: null, note: null, hash: false, purged: true },
+        { first: "Gone", contact: "gone@example.test", note: null, hash: false, purged: true },
         { first: "Kept", contact: "kept@example.test", note: null, hash: false, purged: true },
-      ].sort((a, b) => String(a.first).localeCompare(String(b.first))));
+      ]);
     }
     expect(counts.claims).toBe(4);
     // The younger task still has its place and link; the older ones lost both.
@@ -530,18 +531,18 @@ describe("the daily purge", () => {
     }
     // A day later the younger one goes too; a second run changes nothing more.
     expect((await purgeVolunteerData(db, at(2))).claims).toBe(2);
-    expect((await purgeVolunteerData(db, at(2)))).toEqual({ claims: 0, tasks: 0, bringing: 0, askAgainExpired: 0 });
+    expect((await purgeVolunteerData(db, at(2)))).toEqual({ claims: 0, tasks: 0, bringing: 0 });
     // Those who asked to be asked again are still on the poster's list, the others are not.
     expect((await listAskAgain(db, t.lead)).map((h) => h.contact)).toEqual(["kept@example.test"]);
   });
 
-  it("never keeps a removed or blocked volunteer even if they ticked ask me again; clears where on an old cancelled task", async () => {
+  it("keeps a removed or blocked volunteer's contact but never offers them for asking again; clears where on an old cancelled task", async () => {
     const task = await createVolunteerTask(db, t.lead, taskInput({ date: "2026-12-05", peopleNeeded: 3 }), NOW);
     await claim(task.publicToken!, { contact: "out@example.test", firstName: "Out", mayAskAgain: true });
     await claim(task.publicToken!, { contact: "blocked@example.test", firstName: "Blocked", mayAskAgain: true });
     const [out, blocked] = await db.select().from(volunteerClaims).orderBy(volunteerClaims.createdAt);
     await removeClaim(db, t.lead, out.id, false, NOW);
-    // A block recorded without the claim being removed first still forgets that contact.
+    // A block recorded without the claim being removed first still keeps that contact off the ask-again list.
     await db.insert(volunteerTaskBlocks).values({ taskId: task.id, contactKey: blocked.contactKey!, blockedBy: t.lead.id });
     const future = await createVolunteerTask(db, t.lead, taskInput({ date: "2027-03-01" }), NOW);
     await cancelVolunteerTask(db, t.lead, future.id, NOW);
@@ -549,26 +550,23 @@ describe("the daily purge", () => {
     expect((await db.select().from(volunteerTasks).where(eq(volunteerTasks.id, future.id)))[0].place).toBe(PLACE);
     await purgeVolunteerData(db, at(36));
     expect((await db.select().from(volunteerTasks).where(eq(volunteerTasks.id, future.id)))[0]).toMatchObject({ place: null, contactLine: null });
+    expect(await listAskAgain(db, t.lead)).toEqual([]);
     const claims = await db.select().from(volunteerClaims);
-    expect(claims.every((c) => c.contact === null && c.firstName === null)).toBe(true);
+    expect(claims.map((c) => c.contact).sort()).toEqual(["blocked@example.test", "out@example.test"]);
     expect(await db.select().from(volunteerTaskBlocks)).toEqual([]);
   });
 
-  it("a cancelled claim's contact goes on the 30-day rule even with ask me again; kept contacts go after 24 months", async () => {
+  it("keeps every contact long after the task date: given back, ask me again or not (Keep everything)", async () => {
     const task = await createVolunteerTask(db, t.lead, taskInput({ date: "2026-12-05", peopleNeeded: 3 }), NOW);
     const gave = await claim(task.publicToken!, { contact: "gave@example.test", firstName: "Gave", mayAskAgain: true });
     await claim(task.publicToken!, { contact: "kept@example.test", firstName: "Kept", mayAskAgain: true });
+    await claim(task.publicToken!, { contact: "once@example.test", firstName: "Once" });
     await cancelMyClaim(db, gave.manageToken, meta(), NOW);
-    await purgeVolunteerData(db, at(36));
+    for (const when of [at(36), new Date("2028-12-07T18:00:00Z"), new Date("2031-01-01T18:00:00Z")]) await purgeVolunteerData(db, when);
     const rows = await db.select().from(volunteerClaims);
-    expect(rows.map((c) => c.contact).sort()).toEqual(["kept@example.test", null]);
+    expect(rows.map((c) => [c.firstName, c.contact]).sort()).toEqual([["Gave", "gave@example.test"], ["Kept", "kept@example.test"], ["Once", "once@example.test"]]);
+    // Only those who said ask me again, and did not give their place back, are offered for asking.
     expect((await listAskAgain(db, t.lead)).map((h) => h.contact)).toEqual(["kept@example.test"]);
-    // Twenty-three months after the date nothing more goes; after 24 months the kept contact does too.
-    expect((await purgeVolunteerData(db, new Date("2028-11-05T18:00:00Z"))).askAgainExpired).toBe(0);
-    expect(await db.select().from(volunteerClaims).where(eq(volunteerClaims.firstName, "Kept"))).toHaveLength(1);
-    expect((await purgeVolunteerData(db, new Date("2028-12-07T18:00:00Z"))).askAgainExpired).toBe(1);
-    expect((await db.select().from(volunteerClaims)).every((c) => c.contact === null)).toBe(true);
-    expect(await listAskAgain(db, t.lead)).toEqual([]);
     expect(monthsBefore("2028-02-29", 12)).toBe("2027-02-28");
     expect(monthsBefore("2026-12-01", 24)).toBe("2024-12-01");
   });

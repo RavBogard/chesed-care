@@ -159,7 +159,7 @@ export default async function MyClaimPage({ params, searchParams }: { params: Pr
       {mine.past ? null : (
         <PageSection id="cancel" heading="Cannot make it?">
           <p className="mb-3 text-base">Giving your place back lets someone else take it.</p>
-          <ConfirmAction action={cancelClaimAction} fields={{ token }} label="Give my place back" title="Give your place back?" explain="Your place will open again for someone else. Your details stay only until a month after the date." confirmLabel="Give it back" />
+          <ConfirmAction action={cancelClaimAction} fields={{ token }} label="Give my place back" title="Give your place back?" explain="Your place will open again for someone else. The congregation keeps your contact details." confirmLabel="Give it back" />
         </PageSection>
       )}
       <Commitments items={await getMyCommitments(db, token)} />

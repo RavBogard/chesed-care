@@ -63,7 +63,7 @@ export function ClaimForm({ token, taskId, stamp, what, everyTime = 0 }: { token
           </label>
           <input id="cl-contact" name="contact" required maxLength={254} autoComplete="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} className={inputClass} aria-describedby="cl-contact-help" {...(bad.has("contact") ? { "aria-invalid": true as const } : {})} />
           <p id="cl-contact-help" className="mt-1 text-sm text-rubric">
-            Only the people organising this can see it. It is deleted a month after the date, unless you say below that you may be asked again.
+            Only the people organising this can see it. The congregation keeps it.
           </p>
         </div>
         <div>

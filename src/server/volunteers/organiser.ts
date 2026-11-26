@@ -204,8 +204,8 @@ export const cancelVolunteerTask = (db: Db, actor: Actor, id: unknown, now: Date
 export const markVolunteerTaskDone = (db: Db, actor: Actor, id: unknown, now: Date = new Date()) => finish(db, actor, id, "done", "volunteer_task.done", now);
 
 /**
- * Take a volunteer's place away. Their name and contact stay in sight until the purge (a month after the
- * date) but are never kept for asking again. `block`: that contact cannot claim this task again.
+ * Take a volunteer's place away. Their name and contact stay in sight and are kept, but they are never
+ * offered for asking again. `block`: that contact cannot claim this task again.
  */
 export async function removeClaim(db: Db, actor: Actor, claimId: unknown, block: boolean, now: Date = new Date()): Promise<TaskView> {
   const [row] = await db.select({ claim: volunteerClaims }).from(volunteerClaims).where(eq(volunteerClaims.id, uuidOrNotFound(claimId))).limit(1);
@@ -229,7 +229,7 @@ export async function removeClaim(db: Db, actor: Actor, claimId: unknown, block:
 /**
  * Take an "every time" volunteer off every date of the series at once (those they hold; given-back ones stay as they
  * are). `block`: that contact cannot claim any date of the series again, one by one or "every time". Their name and
- * contact stay in sight until the purge, as for any removed claim, and are never kept for asking again.
+ * contact stay in sight, as for any removed claim, and are never offered for asking again.
  */
 export async function removeFromAllDates(db: Db, actor: Actor, claimId: unknown, block: boolean, now: Date = new Date()): Promise<TaskView> {
   const [row] = await db.select({ claim: volunteerClaims }).from(volunteerClaims).where(eq(volunteerClaims.id, uuidOrNotFound(claimId))).limit(1);

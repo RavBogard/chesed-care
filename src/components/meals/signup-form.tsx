@@ -63,7 +63,7 @@ export function SignupForm({ token, slotId, night, stamp, changeHref }: { token:
           </label>
           <input id="su-email" name="email" type="email" required maxLength={254} autoComplete="email" inputMode="email" className={inputClass} aria-describedby="su-email-help" {...(bad.has("email") ? { "aria-invalid": true as const } : {})} />
           <p id="su-email-help" className="mt-1 text-sm text-rubric">
-            Used for this page only. It is deleted a month after the page ends.
+            The congregation keeps it.
           </p>
         </div>
 

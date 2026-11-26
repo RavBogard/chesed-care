@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { canSeeMealFamilyLink } from "@/server/access/policy";
 import { InvalidInput } from "@/server/care/validate";
-import { auditLog, mealPages, mealRateLimits, mealSignups } from "@/server/db/schema";
+import { auditLog, mealPageBlocks, mealPages, mealRateLimits, mealSignups } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { familyEnd, familyPause, familyResume, getFamilyView, thankHelper, updateFoodNeeds } from "@/server/meals/family";
 import { deliveryIcs } from "@/server/meals/ics";
@@ -129,13 +129,13 @@ describe("after a page has ended", () => {
     expect(await getMySignup(db, mine.manageToken, day(3))).toMatchObject({ state: "ended", thanks: { text: "Thank you" } });
   });
 
-  it("at thirty days the purge empties the page and both links stop resolving", async () => {
+  it("at thirty days the purge empties the page and both links stop resolving; every helper keeps a name and an email", async () => {
     const plain = await signUp(0);
     const opted = await signUp(1, { firstName: "Eli", email: "eli@example.test", mayContactAgain: true });
-    // Opted in, but removed and blocked by the organiser: never kept.
+    // Opted in, but removed and blocked by the organiser: kept, but never offered as a past helper.
     const pest = await signUp(2, { firstName: "Pat", email: "pest@example.test", mayContactAgain: true });
     await removeSignup(db, t.staff, page.id, pest.signupId, { blockEmail: true }, NOW);
-    // Opted in and removed without a block: never kept either.
+    // Opted in and removed without a block: kept, never offered either.
     const removed = await signUp(2, { firstName: "Rem", email: "rem@example.test", mayContactAgain: true });
     await removeSignup(db, t.staff, page.id, removed.signupId, {}, NOW);
     // Opted in, cancelled by themselves, and their email was blocked afterwards through another sign-up of theirs.
@@ -171,8 +171,11 @@ describe("after a page has ended", () => {
     });
     const rows = Object.fromEntries((await db.select().from(mealSignups)).map((r) => [r.id, r]));
     expect(rows[opted.signupId]).toMatchObject({ firstName: "Eli", lastName: "Levy", email: "eli@example.test", bringing: null, note: null, thanksText: null });
-    for (const gone of [plain, pest, removed, again, second]) expect(rows[gone.signupId]).toMatchObject({ firstName: null, lastName: null, email: null, bringing: null, note: null, thanksText: null });
-    expect(words([stored, Object.values(rows)])).not.toMatch(/Maple|porch|Peanuts|Lasagne|See you|pest@|rem@|bo@|Pi Pizzeria|Schnucks|cohens@/);
+    expect(rows[plain.signupId]).toMatchObject({ firstName: "Dana", lastName: "Levy", bringing: null, note: null, thanksText: null });
+    expect(rows[plain.signupId].email).not.toBeNull();
+    expect([pest, removed, again, second].map((k) => rows[k.signupId].email)).toEqual(["pest@example.test", "rem@example.test", "bo@example.test", "bo@example.test"]);
+    for (const k of [pest, removed, again, second]) expect(rows[k.signupId]).toMatchObject({ bringing: null, note: null, thanksText: null });
+    expect(words([stored, Object.values(rows)])).not.toMatch(/Maple|porch|Peanuts|Lasagne|See you|Pi Pizzeria|Schnucks|cohens@/);
 
     // Neither link resolves, and neither does anything else that hangs off them.
     expect(await getPublicMealPage(db, page.publicToken, day(30))).toBeNull();
@@ -188,6 +191,22 @@ describe("after a page has ended", () => {
     expect(await getMealPageForOrganiser(db, t.staff, page.id, day(30))).toMatchObject({ status: "ended", publicToken: null, familyToken: null, dropOffAddress: null, blockedEmails: [] });
     expect(await listPastHelpers(db, t.staff, day(30))).toEqual([{ firstName: "Eli", lastName: "Levy", email: "eli@example.test", lastHelped: "2026-12-03" }]);
     expect(await purgeMealData(db, day(31))).toEqual({ pages: 0, signups: 0 });
+  });
+});
+
+describe("a blocked helper who still holds a sign-up", () => {
+  it("has the ask-me-again tick turned off before the block goes, and is never offered as a past helper", async () => {
+    const kept = await signUp(0, { firstName: "Eli", email: "eli@example.test", mayContactAgain: true });
+    const blocked = await signUp(1, { firstName: "Pat", email: "pat@example.test", mayContactAgain: true });
+    // A block on the page while Pat's sign-up still stands (not cancelled).
+    await db.insert(mealPageBlocks).values({ pageId: page.id, email: "pat@example.test", blockedBy: t.staff.id });
+    await endMealPage(db, t.staff, page.id, NOW);
+    await purgeMealData(db, day(31));
+    expect(await db.select().from(mealPageBlocks)).toEqual([]);
+    const rows = Object.fromEntries((await db.select().from(mealSignups)).map((r) => [r.id, r]));
+    expect(rows[blocked.signupId]).toMatchObject({ email: "pat@example.test", cancelledAt: null, mayContactAgain: false });
+    expect(rows[kept.signupId]).toMatchObject({ email: "eli@example.test", mayContactAgain: true });
+    expect((await listPastHelpers(db, t.staff, day(31))).map((h) => h.email)).toEqual(["eli@example.test"]);
   });
 });
 

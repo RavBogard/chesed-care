@@ -394,7 +394,7 @@ describe("abuse limits", () => {
 });
 
 describe("retention", () => {
-  it("thirty days after a page ended, only helpers who opted in keep a name and an email", async () => {
+  it("thirty days after a page ended, the words go and every helper keeps a name and an email (Keep everything)", async () => {
     const forgotten = await signUp(0);
     const kept = await signUp(1, { firstName: "Eli", lastName: "Stein", email: "eli@example.test", mayContactAgain: true });
     const removed = await signUp(2, { firstName: "Pat", email: "pest@example.test" });
@@ -413,11 +413,12 @@ describe("retention", () => {
     expect(await purgeMealData(db, day(31))).toEqual({ pages: 1, signups: 3 });
 
     const rows = Object.fromEntries((await db.select().from(mealSignups)).map((r) => [r.id, r]));
-    expect(rows[forgotten.signupId]).toMatchObject({ firstName: null, lastName: null, email: null, note: null, thanksText: null, bringing: null, purgedAt: day(31) });
-    expect(rows[removed.signupId]).toMatchObject({ firstName: null, lastName: null, email: null, note: null, bringing: null });
+    expect(rows[forgotten.signupId]).toMatchObject({ firstName: "Dana", lastName: "Levy", note: null, thanksText: null, bringing: null, purgedAt: day(31) });
+    expect(rows[forgotten.signupId].email).not.toBeNull();
+    expect(rows[removed.signupId]).toMatchObject({ firstName: "Pat", email: "pest@example.test", note: null, bringing: null });
     expect(rows[kept.signupId]).toMatchObject({ firstName: "Eli", lastName: "Stein", email: "eli@example.test", note: null, thanksText: null, bringing: null });
     expect(rows[recentSignup.signupId]).toMatchObject({ firstName: "Dana", email: "dana.levy@example.test", note: "See you at six", bringing: "Lasagne", purgedAt: null });
-    expect(Object.values(rows).filter((r) => r.email !== null)).toHaveLength(3);
+    expect(Object.values(rows).filter((r) => r.email !== null)).toHaveLength(5);
     expect(await db.select().from(mealPageBlocks)).toHaveLength(0);
     // Running it again changes nothing; later the other ended page falls due, and a live page never does.
     expect(await purgeMealData(db, day(32))).toEqual({ pages: 0, signups: 0 });

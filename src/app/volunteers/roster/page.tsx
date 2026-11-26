@@ -149,7 +149,7 @@ function MemberRow({ m, today }: { m: MemberView; today: string }) {
           ) : null}
           {m.status !== "left" ? (
             <>
-              <ConfirmAction action={markLeftAction} fields={{ memberId: m.id }} label="Mark as left" ariaLabel={`Mark ${name} as left`} title={`Mark ${name} as left?`} explain="They will not be asked again, and their contact details are deleted after 30 days." confirmLabel="Mark as left" />
+              <ConfirmAction action={markLeftAction} fields={{ memberId: m.id }} label="Mark as left" ariaLabel={`Mark ${name} as left`} title={`Mark ${name} as left?`} explain="They will not be asked again. Their contact details are kept." confirmLabel="Mark as left" />
               <ConfirmAction action={makeStopLinkAction} fields={{ memberId: m.id, replace: "yes" }} label="Copy a stop link" ariaLabel={`Copy a stop link for ${name}`} title="Copy a stop link?" explain={STOP_LINK_REPLACES} confirmLabel="Make a new link" />
             </>
           ) : null}

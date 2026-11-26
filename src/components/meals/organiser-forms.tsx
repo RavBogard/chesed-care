@@ -105,7 +105,7 @@ export function StatusControls({ pageId, status, agreed }: { pageId: string; sta
       {status === "draft" ? agreed ? <StatusButton pageId={pageId} op="live" label="Go live" primary /> : <AgreedButton pageId={pageId} /> : null}
       {status === "live" ? <StatusButton pageId={pageId} op="pause" label="Pause" /> : null}
       {status === "paused" ? <StatusButton pageId={pageId} op="resume" label="Resume" primary /> : null}
-      <ConfirmAction action={statusAction} fields={{ pageId, op: "end" }} label="End the page" title="End this page for good?" explain="Helpers can no longer sign up and the link shows that the page has ended. Thirty days later helpers' names and emails are deleted. This cannot be undone." confirmLabel="End the page" />
+      <ConfirmAction action={statusAction} fields={{ pageId, op: "end" }} label="End the page" title="End this page for good?" explain="Helpers can no longer sign up and the link shows that the page has ended. Helpers' names and emails are kept. This cannot be undone." confirmLabel="End the page" />
     </div>
   );
 }
