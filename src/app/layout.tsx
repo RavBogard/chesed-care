@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { connection } from "next/server";
 import { SHELL } from "@/lib/brand";
+import { isDemo } from "@/lib/demo";
 import { frankRuhl, publicSans } from "./fonts";
 import "./globals.css";
 
@@ -23,7 +24,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   await connection();
   return (
-    <html lang="en" className={`${frankRuhl.variable} ${publicSans.variable}`}>
+    <html lang="en" data-demo={isDemo() ? "on" : undefined} className={`${frankRuhl.variable} ${publicSans.variable}`}>
       <body className="min-h-dvh bg-ground font-sans text-ink antialiased">
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:border focus:border-control focus:bg-surface focus:px-4 focus:py-3 focus:text-ink">
           Skip to content

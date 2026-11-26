@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef } from "react";
+import { ShulMark } from "@/components/shul-mark";
 import { APP_NAME } from "@/lib/brand";
+import { isDemo } from "@/lib/demo";
 import { btnOnShell } from "../ui";
 
 /** `more`: a secondary destination, grouped under "More" so the list stays short on a phone. */
 export type NavItem = { href: string; label: string; badge?: React.ReactNode; more?: boolean };
 
-const brand = "font-serif text-xl font-bold";
+const brand = "flex items-center gap-2 font-serif text-xl font-bold";
+/** In the demo build the invented congregation's logo sits before the name. */
+const mark = isDemo() ? <ShulMark size={26} /> : null;
 
 const isCurrent = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 
@@ -62,7 +66,10 @@ function NavLinks({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => 
 export function SideNav({ items, who, children }: { items: NavItem[]; who: string; children: React.ReactNode }) {
   return (
     <aside aria-label="Sidebar" className="hidden print:hidden bg-shell text-on-shell [--focus-ring:var(--color-focus-on-shell)] lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:overflow-y-auto lg:p-5">
-      <p className={brand}>{APP_NAME}</p>
+      <p className={brand}>
+        {mark}
+        {APP_NAME}
+      </p>
       <p className="mt-1 text-sm text-on-shell-muted [overflow-wrap:anywhere]">{who}</p>
       <div className="mt-6">
         <NavLinks items={items} />
@@ -92,7 +99,10 @@ export function NavDrawer({ items, who, children }: { items: NavItem[]; who: str
         }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className={brand}>{APP_NAME}</p>
+          <p className={brand}>
+            {mark}
+            {APP_NAME}
+          </p>
           <button type="button" className={btnOnShell} onClick={close}>
             Close
           </button>

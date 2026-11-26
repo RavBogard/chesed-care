@@ -1,4 +1,6 @@
 import { Hebrew } from "@/components/hebrew";
+import { ShulMark } from "@/components/shul-mark";
+import { isDemo } from "@/lib/demo";
 import { facingLine, noticeClass, tagQuiet, titleClass } from "@/components/ui";
 import { longDate } from "@/lib/format";
 import { FOOD_TYPE_WORDS, KASHRUT_WORDS, mealWord, type FoodType, type Kashrut } from "@/lib/meals-wording";
@@ -13,7 +15,10 @@ export function PublicFrame({ congregation, title, children, wide = false }: { c
     <div className="flex min-h-dvh flex-col">
       <header className="bg-shell text-on-shell print:bg-transparent print:text-ink">
         <div className={`mx-auto flex min-h-14 w-full ${wide ? "max-w-xl lg:max-w-3xl" : "max-w-xl lg:max-w-3xl"} items-center px-4 py-2 lg:px-8`}>
-          <p className="font-serif text-xl font-bold leading-tight">{congregation}</p>
+          <p className="flex items-center gap-2 font-serif text-xl font-bold leading-tight">
+            {isDemo() ? <ShulMark size={26} /> : null}
+            {congregation}
+          </p>
         </div>
       </header>
       <main id="main" className="mx-auto w-full max-w-xl px-4 pb-16 pt-6 lg:max-w-3xl lg:px-8 lg:pt-10">

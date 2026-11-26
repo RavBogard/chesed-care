@@ -1,7 +1,17 @@
 import { GROUND, SHELL } from "@/lib/brand";
+import { isDemo } from "@/lib/demo";
+import { ShulMark } from "./shul-mark";
 
 /** The app icon: the shell's navy square with a simple heart, drawn as SVG so it needs no image file or font. */
 export function AppIcon({ size }: { size: number }) {
+  // The demo build carries the invented congregation's logo instead of the heart.
+  if (isDemo()) {
+    return (
+      <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center", background: SHELL, color: GROUND }}>
+        <ShulMark size={size * 0.66} />
+      </div>
+    );
+  }
   return (
     <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center", background: SHELL }}>
       <svg width={size * 0.56} height={size * 0.56} viewBox="0 0 24 24" fill={GROUND}>

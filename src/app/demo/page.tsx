@@ -8,7 +8,8 @@ import {
   inputClass,
   noticeClass,
 } from "@/components/ui";
-import { APP_NAME, CONGREGATION_NAME } from "@/lib/brand";
+import { ShulMark } from "@/components/shul-mark";
+import { APP_NAME, CONGREGATION_NAME, DEMO_TAGLINE } from "@/lib/brand";
 import { DEMO_PERSONAS, isDemo } from "@/lib/demo";
 import { hebrewDate } from "@/lib/hebrew-date";
 import { chicagoToday } from "@/server/lifecycle/window";
@@ -56,7 +57,8 @@ export default async function DemoPage({
       <header className="bg-shell text-on-shell">
         <div className="mx-auto flex min-h-14 w-full max-w-xl items-center px-4 py-2 lg:max-w-3xl lg:px-8">
           <div className={`${facingLine} min-w-0 flex-1`}>
-            <h1 className="min-w-0 break-words font-serif text-[1.375rem] font-bold leading-tight">
+            <h1 className="flex min-w-0 items-center gap-2 break-words font-serif text-[1.375rem] font-bold leading-tight">
+              <ShulMark size={28} />
               {APP_NAME}
             </h1>
             {today ? (
@@ -79,6 +81,16 @@ export default async function DemoPage({
             The demo is back to its starting story.
           </p>
         ) : null}
+
+        <div className="flex items-center gap-4 text-action" data-testid="shul-lockup">
+          <ShulMark size={72} title={`${CONGREGATION_NAME} logo`} />
+          <div className="min-w-0">
+            <p className="font-serif text-2xl font-bold leading-tight text-ink lg:text-3xl">
+              {CONGREGATION_NAME}
+            </p>
+            <p className="mt-1 text-sm text-rubric">{DEMO_TAGLINE}</p>
+          </div>
+        </div>
 
         <section className="flex flex-col gap-3">
           <p className="text-lg text-ink">

@@ -103,6 +103,21 @@ html {
   }
 }
 
+/*
+ * The demo build (src/lib/demo.ts) wears the invented congregation's colours: a plum shell in place of the navy,
+ * so nobody mistakes it for the real app. Only the shell, the actions and the selected state change; the four
+ * occasion colours and every text colour stay, so the contrast figures above still hold (white on #3d2a5c is 12.4).
+ * src/lib/brand.ts repeats the shell colour for the icon and the browser's theme colour.
+ */
+html[data-demo] {
+  --color-shell: #3d2a5c;
+  --color-shell-raised: #564083;
+  --color-on-shell-muted: #e0d7f2;
+  --color-action: #3d2a5c;
+  --color-action-strong: #2b1d44;
+  --color-selected: #e8e0f6;
+}
+
 /* An open menu or sheet holds the page still behind it. */
 html:has(dialog[open]) {
   overflow: hidden;

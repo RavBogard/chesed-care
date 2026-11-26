@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { CopyButton } from "@/components/copy-button";
+import { ShulMark } from "@/components/shul-mark";
 import { btnPrimary, btnText } from "@/components/ui";
 import { APP_NAME } from "@/lib/brand";
 import { isDemo } from "@/lib/demo";
@@ -24,7 +25,10 @@ export default function OwnPage() {
     <div className="flex min-h-dvh flex-col">
       <header className="bg-shell text-on-shell">
         <div className="mx-auto flex min-h-14 w-full max-w-xl items-center px-4 py-2 lg:max-w-3xl lg:px-8">
-          <h1 className="min-w-0 break-words font-serif text-[1.375rem] font-bold leading-tight">{APP_NAME}</h1>
+          <h1 className="flex min-w-0 items-center gap-2 break-words font-serif text-[1.375rem] font-bold leading-tight">
+            <ShulMark size={28} />
+            {APP_NAME}
+          </h1>
         </div>
       </header>
       <main id="main" className="mx-auto flex w-full max-w-xl flex-col gap-8 px-4 py-6 lg:max-w-3xl lg:px-8 lg:py-10">
