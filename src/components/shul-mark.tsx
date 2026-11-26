@@ -8,7 +8,7 @@ import { DEMO_GOLD } from "@/lib/brand";
  */
 export function ShulMark({ size = 28, title }: { size?: number; title?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" role={title ? "img" : undefined} aria-label={title} aria-hidden={title ? undefined : true} style={{ flexShrink: 0 }}>
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" role={title ? "img" : undefined} aria-label={title} aria-hidden={title ? undefined : true} className="shrink-0">
       {/* The house. */}
       <path d="M7 23 24 9l17 14v17a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
       {/* The letter bet, standing in the doorway. */}
