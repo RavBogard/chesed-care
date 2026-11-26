@@ -1,0 +1,1 @@
+ALTER TABLE "follow_ups" ALTER COLUMN "owner_user_id" DROP NOT NULL;
