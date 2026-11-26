@@ -4,11 +4,13 @@ import { CHANNEL_LABEL, InboxCard, type InboxEntry } from "@/components/inbox-ca
 import { entryFor } from "./entry";
 import { AppShell } from "@/components/shell/app-shell";
 import { btnQuiet, btnSelected, btnText } from "@/components/ui";
-import { canSeeLifecycle, isClergyLevel } from "@/server/access/policy";
+import { canReadOriginalReports, canSeeLifecycle, isClergyLevel } from "@/server/access/policy";
 import { actorOrRedirect } from "@/server/auth/page-actor";
 import { getViewer } from "@/server/auth/session";
 import { createMatcher, LIST_MAX_NAMES } from "@/server/care/reading-match";
 import { listInbox, type Proposal } from "@/server/care/proposals";
+import { countClosedReports } from "@/server/care/closed-reports";
+import { CLOSED_WORDS } from "@/components/closed-report-card";
 import { listJourneyChoices, type JourneyChoice } from "@/server/journeys/journeys";
 import { listTeam } from "@/server/care/users";
 import { getDb } from "@/server/db/client";
@@ -17,7 +19,7 @@ import { getSalesforce } from "@/server/salesforce";
 import { AwayLines, loadAwayLines } from "@/components/team/away-lines";
 import { coverMap, listAwayToday, suggestInstead } from "@/server/team/away";
 import { LoadNotice } from "@/components/load-notice";
-import { logFailure } from "@/server/soft";
+import { logFailure, soft } from "@/server/soft";
 import { holdersOf } from "@/components/holders";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +39,8 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   let channels: Proposal["channel"][] = [];
   const channel = asked && Object.hasOwn(CHANNEL_LABEL, asked) ? (asked as Proposal["channel"]) : null;
   const awayText = await loadAwayLines(actor, today);
+  // The quiet link to "Closed without action": a count of only those this viewer may read back, and no link when there are none.
+  const closedCount = canReadOriginalReports(actor) ? await soft("Inbox: closed count unavailable", 0, () => countClosedReports(db, actor)) : 0;
   let holders: { id: string; name: string }[] = [];
   let journeyChoices: JourneyChoice[] = [];
   try {
@@ -98,6 +102,13 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
             <InboxCard key={e.proposal.id} entry={e} today={today} actorId={actor.id} holders={holders} journeyChoices={journeyChoices} />
           ))}
         </ul>
+      ) : null}
+      {closedCount > 0 ? (
+        <p className="mt-8">
+          <Link href="/inbox/closed" className={btnText} data-testid="inbox-closed-link">
+            {CLOSED_WORDS.link(closedCount)}
+          </Link>
+        </p>
       ) : null}
     </AppShell>
   );

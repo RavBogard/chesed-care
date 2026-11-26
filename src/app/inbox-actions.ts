@@ -10,6 +10,7 @@ import { createOutsidePerson } from "@/server/care/outside-people";
 import { keepToClergy } from "@/server/care/practical";
 import { readAgain, scheduleReading } from "@/server/care/ai-reading";
 import { acceptProposal, createProposal, dismissProposal, releaseToInbox } from "@/server/care/proposals";
+import { reopenProposal } from "@/server/care/closed-reports";
 import { getSalesforce } from "@/server/salesforce";
 
 export type Captured = DataState<{ id: string; words: string }> | { status: "idle" };
@@ -98,6 +99,15 @@ export async function dismissProposalAction(_prev: ActionState, form: FormData):
   return runAction(await getViewer(), async (actor, db) => {
     await dismissProposal(db, actor, f.proposalId);
     return "Closed without action.";
+  });
+}
+
+/** "Closed without action": put a dismissed report back in the Inbox, pending, with no reading. */
+export async function reopenProposalAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const f = fields(form);
+  return runAction(await getViewer(), async (actor, db) => {
+    await reopenProposal(db, actor, f.proposalId);
+    return "Back in the Inbox.";
   });
 }
 

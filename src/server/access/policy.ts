@@ -36,7 +36,7 @@
  * Each list rule has a predicate (for one loaded row) and a SQL condition (for
  * queries); tests run both over the same rows so they cannot drift apart.
  */
-import { and, eq, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, eq, isNotNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { PrefKind } from "@/lib/notice";
 import { agendaEntries, careItemAccess, careItems, contactLog, followUps, mealPageOrganisers, mealPages, outsidePeople, proposals, volunteerTasks } from "@/server/db/schema";
 
@@ -416,9 +416,10 @@ export function canReviewProposal(actor: Actor, proposal: ProposalAccessRow): bo
   return proposal.reviewScope === "clergy" || proposal.submittedBy === actor.id;
 }
 
-export function proposalReviewWhere(actor: Actor): SQL {
+/** SQL twin of canReviewProposal. `p`: the proposals table, or an alias of it (a paging cursor's row). */
+export function proposalReviewWhere(actor: Actor, p: { reviewScope: AnyColumn; submittedBy: AnyColumn } = proposals): SQL {
   if (!isClergyLevel(actor)) return sql`false`;
-  return or(eq(proposals.reviewScope, "clergy"), eq(proposals.submittedBy, actor.id))!;
+  return or(eq(p.reviewScope, "clergy"), eq(p.submittedBy, actor.id))!;
 }
 
 // ─── adding directly: staff and Mitzvah Corps leads ─────────────────────────────────────
@@ -897,6 +898,16 @@ export function canEditOutsidePerson(actor: Actor): boolean {
  */
 export function canReadOriginalReports(actor: Actor): boolean {
   return isClergyLevel(actor);
+}
+
+/**
+ * "Closed without action": the dismissed reports whose words the actor may read back, and so may reopen. The SQL twin of
+ * getDismissedReport's rule (src/server/care/original-reports.ts): clergy level, dismissed, the words still there (a departed
+ * rabbi's erased captures are not), and one the actor could have reviewed (proposalReviewWhere: the shared Inbox, or their own).
+ */
+export function dismissedReportWhere(actor: Actor): SQL {
+  if (!canReadOriginalReports(actor)) return sql`false`;
+  return and(eq(proposals.status, "dismissed"), isNotNull(proposals.rawText), proposalReviewWhere(actor))!;
 }
 
 /** "Told to us by": clergy level. Which items it shows on is decided in SQL by careItemVisibleWhere (src/server/care/reporter.ts). */

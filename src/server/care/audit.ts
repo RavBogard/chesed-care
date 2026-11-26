@@ -23,6 +23,7 @@ export type AuditAction =
   | "proposal.accept"
   | "proposal.dismiss"
   | "proposal.release"
+  | "proposal.reopen"
   | "proposal.practical_take"
   | "proposal.practical_keep"
   | "push_device.add"

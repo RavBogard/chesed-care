@@ -49,7 +49,8 @@ export async function getOriginalReports(db: Db, actor: Actor, careItemIds: stri
 
 /**
  * The words of one dismissed report, for a clergy member who could have reviewed it. Missing, not dismissed,
- * not theirs to review and already erased all look the same: NotFound. No screen shows this yet.
+ * not theirs to review and already erased all look the same: NotFound. The list of them, "Closed without action", is
+ * src/server/care/closed-reports.ts, with the same rule in SQL (dismissedReportWhere).
  */
 export async function getDismissedReport(db: Db, actor: Actor, id: unknown): Promise<OriginalReport> {
   const [row] = await db.select().from(proposals).where(eq(proposals.id, uuidOrNotFound(id))).limit(1);
