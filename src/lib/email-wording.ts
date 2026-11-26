@@ -49,3 +49,11 @@ export function reminderMail(input: { what: "meal" | "help"; date: string }): Ma
     "The details are on your own page. The link is in the email we sent when you signed up.",
   );
 }
+
+/**
+ * Put at the top of the first email of any kind to someone brought in from the old Mitzvah Corps spreadsheet, once the
+ * owner has turned their email on: what this is, and how to stop it.
+ */
+export function importedIntro(stopUrl: string): string {
+  return `Central Reform Congregation's Mitzvah Corps now asks for help through this app, CRC Care, and you were on our volunteer list. To stop hearing from us: ${stopUrl}`;
+}

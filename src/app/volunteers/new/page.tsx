@@ -19,7 +19,12 @@ export const metadata = { title: "Post a task · CRC Care" };
 function kindOf(title: string): KindKey {
   const t = title.toLowerCase();
   if (t.includes("minyan")) return "shiva_minyan";
+  if (t.includes("deliver")) return "delivery";
+  if (t.includes("dog") || t.includes("pet")) return "pet_care";
+  if (t.includes("tech") || t.includes("computer")) return "tech_help";
   if (t.includes("meal")) return "meal";
+  // After "meal": a "shiva meal" is a meal.
+  if (t.includes("shiva")) return "shiva_help";
   if (t.includes("ride")) return "ride";
   if (t.includes("visit")) return "visit";
   if (t.includes("call")) return "call";

@@ -3,13 +3,14 @@ import { acceptAllPendingAction, acceptMemberAction, addPastHelperAction, dismis
 import { ActionForm } from "@/components/action-form";
 import { ActionButton, ConfirmAction } from "@/components/confirm-sheet";
 import { MemberForm } from "@/components/roster/member-form";
+import { ImportedLines } from "@/components/roster/imported-lines";
 import { Section } from "@/components/section";
 import { Sheet } from "@/components/sheet";
 import { AppShell } from "@/components/shell/app-shell";
 import { btnLaptopNatural, btnPrimary, btnQuiet, inputClass, labelClass, noticeClass, tagNew, tagQuiet } from "@/components/ui";
 import { CopyButton } from "@/components/copy-button";
 import { instantDate, shortDate } from "@/lib/format";
-import { askedAgainWords, CAN_DO_LABEL, HOW_OFTEN_LABEL, PREFER_CONTACT_LABEL, helpedWords, NOT_ASKED_BACK, PAST_HELPERS_HEADING, PENDING_HEADING, PENDING_NOTE, returnConfirmWords, stoppedSelfWords, STOP_LINK_REPLACES, PAST_HELPERS_NOTE, ROSTER_EMPTY, ROSTER_HINTS, SOURCE_LABEL, STATUS_LABEL } from "@/lib/roster-wording";
+import { askedAgainWords, CAN_DO_LABEL, HOW_OFTEN_LABEL, PREFER_CONTACT_LABEL, helpedWords, NOT_ASKED_BACK, PAST_HELPERS_HEADING, PENDING_HEADING, PENDING_NOTE, returnConfirmWords, stoppedSelfWords, STOP_LINK_REPLACES, PAST_HELPERS_NOTE, ROSTER_EMPTY, ROSTER_HINTS, SOURCE_LABEL, STATUS_LABEL, IMPORTED_MARK } from "@/lib/roster-wording";
 import { canManageRoster } from "@/server/access/policy";
 import { actorOrRedirect } from "@/server/auth/page-actor";
 import { getViewer } from "@/server/auth/session";
@@ -77,6 +78,11 @@ function MemberRow({ m, today }: { m: MemberView; today: string }) {
         <h3 className="font-serif text-[1.0625rem] font-semibold leading-snug">{name}</h3>
         <span className="flex flex-wrap gap-2">
           <span className={m.status === "active" ? tagQuiet : tagNew}>{STATUS_LABEL[m.status]}</span>
+          {m.emailsHeld && !m.notVolunteered ? (
+            <span className={tagQuiet} data-testid="imported-mark">
+              {IMPORTED_MARK}
+            </span>
+          ) : null}
         </span>
       </div>
       {m.askedToJoinAgainAt ? (
@@ -105,6 +111,7 @@ function MemberRow({ m, today }: { m: MemberView; today: string }) {
       {m.howOften || m.preferContact ? <p className="text-sm text-rubric">{[m.howOften ? `Asked: ${HOW_OFTEN_LABEL[m.howOften].toLowerCase()}` : null, m.preferContact ? `Prefers: ${PREFER_CONTACT_LABEL[m.preferContact].toLowerCase()}` : null].filter(Boolean).join(" · ")}</p> : null}
       {m.area ? <p className="text-sm text-rubric">Area: {m.area}</p> : null}
       {m.coordinatorNotes ? <p className="mt-1 text-sm">Note: {m.coordinatorNotes}</p> : null}
+      <ImportedLines m={m} />
       <p className="mt-1 text-sm text-rubric" data-testid="roster-helped">
         {m.lastHelpedOn ? `Last helped ${shortDate(m.lastHelpedOn)}. ` : ""}
         {helpedWords(m.lastHelpedOn, m.helpedLast12Months)}. {SOURCE_LABEL[m.source]}.
@@ -201,7 +208,9 @@ export default async function RosterPage({ searchParams }: { searchParams: Promi
   const filtered = q !== "" || can !== "" || status !== "";
   const pending = (members ?? []).filter((m) => m.status === "pending");
   const rest = (members ?? []).filter((m) => m.status !== "pending");
-  const contacts = rest.filter((m) => m.status === "active").flatMap((m) => [m.email, m.mobile]).filter((c): c is string => c !== null);
+  // An imported member's email is left out: they are phoned until their email is turned on.
+  // Only people who may be asked: not someone from "IL members" who has not volunteered.
+  const contacts = rest.filter((m) => m.status === "active" && !m.notVolunteered).flatMap((m) => [m.emailsHeld ? null : m.email, m.mobile]).filter((c): c is string => c !== null);
   return (
     <AppShell actor={actor} title="Roster">
       <p className="mb-5 flex flex-wrap gap-2">

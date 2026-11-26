@@ -5,15 +5,25 @@
  *
  * Caps: 6 emails per recipient per day, 300 per hour and 1500 per day in all. The same (kind, ref, recipient) is sent
  * once: a second send answers "duplicate". A send that fails is forgotten, so a later run may try again.
+ *
+ * Held: a Mitzvah Corps member brought in from the old spreadsheet and not yet asked (emails_held) gets no mail the
+ * roster starts (an ask, a welcome, anything new) until the owner turns it on: it answers "held" and nothing is logged.
+ * What they asked for themselves by signing up (a confirmation, a day-before reminder) still goes. After the owner turns
+ * it on, their first email carries a sentence saying what this is and their stop link. See ./roster-gate.ts.
  */
 import { eq, lt } from "drizzle-orm";
+import { importedIntro } from "@/lib/email-wording";
 import { safeEmails } from "@/lib/ask-links";
 import { runAfterResponse } from "@/server/after";
 import { emailLog } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { signFor } from "@/server/meals/client-meta";
 import { withinDailyLimit, withinLimit } from "@/server/meals/rate-limit";
+import { signedStopPath } from "@/server/volunteers/stop-link";
 import { emailStatus } from "./config";
+import { claimIntro, giveBackIntro, rosterGate } from "./roster-gate";
+
+export { ACCOUNT_KINDS, SELF_REQUESTED_KINDS } from "./roster-gate";
 
 export const FROM = "Central Reform Congregation <care@centralreform.org>";
 export const DEFAULT_REPLY_TO = "care@centralreform.org";
@@ -26,7 +36,7 @@ const KEEP_DAYS = 60;
 /** The one extra header allowed: where a human can stop these emails (a URL in angle brackets, no line breaks). */
 export type EmailHeaders = { "List-Unsubscribe"?: string };
 export type EmailMessage = { to: string; subject: string; text: string; kind: string; ref: string; headers?: EmailHeaders };
-export type SendResult = "sent" | "not_configured" | "limited" | "duplicate" | "failed";
+export type SendResult = "sent" | "not_configured" | "limited" | "duplicate" | "failed" | "held";
 export type EmailDeps = { fetch?: typeof fetch; now?: Date; env?: Record<string, string | undefined>; timeoutMs?: number };
 
 /** The headers to send, or null when anything but the one allowed header, or an unsafe value, was passed. */
@@ -54,16 +64,23 @@ export function strictAddress(to: unknown): string | null {
 
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
 
+
 export async function sendEmail(db: Db, message: EmailMessage, deps: EmailDeps = {}): Promise<SendResult> {
   const env = deps.env ?? process.env;
   const now = deps.now ?? new Date();
   let claimed: string | null = null;
+  let introTaken: string | null = null;
   try {
     const to = strictAddress(message.to);
     if (!to) return "failed";
     const extra = safeHeaders(message.headers);
     if (!extra) return "failed";
     if (!emailStatus(env).configured) return "not_configured";
+    const gate = await rosterGate(db, to, message.kind);
+    if (gate.held) return "held";
+    // An intro is never sent without its stop link: no address for the app, no email.
+    const base = env.BETTER_AUTH_URL?.trim() || process.env.BETTER_AUTH_URL?.trim();
+    if (gate.introFor && !base) return "failed";
     const hash = addressHash(to);
     const [row] = await db.insert(emailLog).values({ kind: message.kind, ref: message.ref, toHash: hash }).onConflictDoNothing().returning({ id: emailLog.id });
     if (!row) return "duplicate";
@@ -78,16 +95,24 @@ export async function sendEmail(db: Db, message: EmailMessage, deps: EmailDeps =
       await forget(db, claimed);
       return "limited";
     }
+    let text = message.text;
+    if (gate.introFor && (await claimIntro(db, gate.introFor))) {
+      introTaken = gate.introFor;
+      const stopUrl = `${new URL(base!).origin}${signedStopPath(introTaken)}`;
+      text = `${importedIntro(stopUrl)}\n\n${text}`;
+      extra["List-Unsubscribe"] ??= `<${stopUrl}>`;
+    }
     const replyTo = strictAddress(env.CARE_REPLY_TO?.trim()) ?? DEFAULT_REPLY_TO;
     const response = await (deps.fetch ?? fetch)("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY!.trim()}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [to], subject: oneLine(message.subject), text: message.text, reply_to: replyTo, ...(extra["List-Unsubscribe"] ? { headers: extra } : {}) }),
+      body: JSON.stringify({ from: FROM, to: [to], subject: oneLine(message.subject), text, reply_to: replyTo, ...(extra["List-Unsubscribe"] ? { headers: extra } : {}) }),
       signal: AbortSignal.timeout(deps.timeoutMs ?? TIMEOUT_MS),
     });
     if (!response.ok) {
       console.error("email.failed", message.kind, response.status);
       await forget(db, claimed);
+      if (introTaken) await giveBackIntro(db, introTaken);
       return "failed";
     }
     await db.update(emailLog).set({ ok: true }).where(eq(emailLog.id, claimed));
@@ -95,6 +120,7 @@ export async function sendEmail(db: Db, message: EmailMessage, deps: EmailDeps =
   } catch (error) {
     console.error("email.failed", message.kind, error instanceof Error ? error.name : "unknown");
     if (claimed) await forget(db, claimed).catch(() => undefined);
+    if (introTaken) await giveBackIntro(db, introTaken).catch(() => undefined);
     return "failed";
   }
 }

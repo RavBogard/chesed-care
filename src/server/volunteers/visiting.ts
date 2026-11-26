@@ -13,7 +13,7 @@ import { dateField, InvalidInput, NotFound, optionalText, uuidField, uuidOrNotFo
 import { corpsMembers, outsidePeople, visitingList, visitingVisits } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
 import { addDays, chicagoToday } from "@/server/lifecycle/window";
-import { effectiveStatus } from "./roster";
+import { askable, effectiveStatus } from "./roster";
 
 /** A visit may be logged for today or up to this many days back. */
 export const VISIT_BACK_DAYS = 60;
@@ -165,7 +165,8 @@ export async function visitingEntryFor(db: Db, actor: Actor, ref: { sfContactId?
 export async function listVisitorChoices(db: Db, actor: Actor, now: Date = new Date()): Promise<VisitorChoice[]> {
   if (!canAssignVisitor(actor)) deny();
   const today = chicagoToday(now);
-  const rows = (await db.select().from(corpsMembers)).filter((m) => effectiveStatus(m, today) === "active");
+  // Only volunteers: a member from the old "IL members" tab who has not volunteered is never offered.
+  const rows = (await db.select().from(corpsMembers)).filter((m) => askable(m, today));
   return rows
     .map((m) => ({ id: m.id, name: [m.firstName, m.lastName].filter(Boolean).join(" "), canVisit: m.canDo.includes("visits") }))
     .sort((a, b) => Number(b.canVisit) - Number(a.canVisit) || a.name.localeCompare(b.name));
@@ -179,7 +180,7 @@ export async function setVisitor(db: Db, actor: Actor, id: unknown, memberId: un
   if (memberId !== null && memberId !== undefined && memberId !== "") {
     member = uuidField(memberId, "memberId");
     const [m] = await db.select().from(corpsMembers).where(eq(corpsMembers.id, member)).limit(1);
-    if (!m || m.contactPurgedAt !== null || effectiveStatus(m, chicagoToday(now)) !== "active") throw new InvalidInput("memberId");
+    if (!m || m.contactPurgedAt !== null || !askable(m, chicagoToday(now))) throw new InvalidInput("memberId");
   }
   await db.transaction(async (tx) => {
     await tx.update(visitingList).set({ visitorMemberId: member, visitorSetBy: member ? actor.id : null }).where(eq(visitingList.id, entry.id));

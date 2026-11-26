@@ -18,7 +18,9 @@ import { canSeeMiSheberachSync } from "@/server/access/policy";
 import { jobIsOverdue, latestJobRuns, type JobRunView } from "@/server/daily/run";
 import { listJourneyTemplates, type TemplateView } from "@/server/journeys/template-store";
 import * as W from "@/lib/shortcut-wording";
-import { canEditJourneyTemplates, canHoldRestricted, canManageUsers, canPrintTellSign, canSeeJobRuns, normalizeEmail } from "@/server/access/policy";
+import { canEditJourneyTemplates, canHoldRestricted, canManageUsers, canPrintTellSign, canReleaseImportedEmails, canSeeJobRuns, normalizeEmail } from "@/server/access/policy";
+import { countReleasable, type Releasable } from "@/server/volunteers/release-emails";
+import { ReleaseEmailsSection } from "@/components/roster/release-emails";
 import { actorOrRedirect } from "@/server/auth/page-actor";
 import { getViewer } from "@/server/auth/session";
 import { aiSortingStatus } from "@/server/care/ai-config";
@@ -71,7 +73,9 @@ export default async function AdminPage() {
   let templates: TemplateView[] | null = null;
   let jobRuns: JobRunView[] | null = null;
   let packet: SyncStatus | null = null;
+  let releasable: Releasable | null = null;
   try {
+    if (canReleaseImportedEmails(actor)) releasable = await countReleasable(db, actor);
     if (canEditJourneyTemplates(actor)) templates = await listJourneyTemplates(db, actor);
     if (canSeeJobRuns(actor)) jobRuns = await latestJobRuns(db, actor);
     if (canSeeMiSheberachSync(actor)) packet = await getSyncStatus(db, actor, syncMode());
@@ -111,6 +115,8 @@ export default async function AdminPage() {
           </div>
         </Section>
       ) : null}
+
+      {releasable !== null ? <ReleaseEmailsSection count={releasable.count} token={releasable.token} /> : null}
 
       {canManageUsers(actor) ? (
         <Section title="AI reading">

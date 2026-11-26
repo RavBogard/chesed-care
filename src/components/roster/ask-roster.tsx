@@ -86,7 +86,7 @@ export function AskRoster({ target, rows }: { target: { taskId: string } | { gro
             start(async () => {
               const out = await emailRosterAction({ ...target, memberIds: [...picked] });
               if (out.status === "error") setError(out.message);
-              else setSentNote(out.data.configured ? askEmailResult(out.data.sent, out.data.noEmail, out.data.notSent) : ASK_EMAIL_OFF);
+              else setSentNote(out.data.configured ? askEmailResult(out.data.sent, out.data.noEmail, out.data.notSent, out.data.held) : ASK_EMAIL_OFF);
             });
           }}
         >

@@ -249,7 +249,7 @@ describe("asking the roster by email", () => {
     const { task, a, b, c } = await ask();
     const d = deps();
     const out = await emailAsk(db, t.lead, { taskId: task.id }, [a.id, b.id, c.id], ORIGIN, NOW, d);
-    expect(out).toEqual({ configured: true, sent: 2, noEmail: 1, notSent: 0 });
+    expect(out).toEqual({ configured: true, sent: 2, noEmail: 1, notSent: 0, held: 0 });
     expect(sent.map((s) => s.body.to).sort()).toEqual([["avi@example.test"], ["bea@example.test"]]);
     for (const s of sent) {
       expect(s.body.to).toHaveLength(1);
@@ -273,7 +273,7 @@ describe("asking the roster by email", () => {
 
   it("sends and records nothing when email is not set up; only people who may manage the roster can send; at most 60", async () => {
     const { task, a } = await ask();
-    expect(await emailAsk(db, t.lead, { taskId: task.id }, [a.id], ORIGIN, NOW, deps({ env: {} }))).toEqual({ configured: false, sent: 0, noEmail: 0, notSent: 0 });
+    expect(await emailAsk(db, t.lead, { taskId: task.id }, [a.id], ORIGIN, NOW, deps({ env: {} }))).toEqual({ configured: false, sent: 0, noEmail: 0, notSent: 0, held: 0 });
     expect(await db.select().from(corpsAsks)).toEqual([]);
     for (const who of [t.staff, t.carer, t.senior]) await expect(emailAsk(db, who, { taskId: task.id }, [a.id], ORIGIN, NOW, deps())).rejects.toBeInstanceOf(AccessDenied);
     const many = Array.from({ length: 61 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);

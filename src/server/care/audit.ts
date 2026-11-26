@@ -81,6 +81,8 @@ export type AuditAction =
   | "corps_member.stop_link"
   | "corps_member.join"
   | "corps_member.stop"
+  | "corps_member.import"
+  | "corps_member.release_emails"
   | "visiting.add"
   | "visiting.update"
   | "visiting.end"
@@ -108,7 +110,7 @@ export type AuditAction =
   | "agenda.purge"
   | "outside_person.update";
 
-export type AuditSubject = "care_item" | "contact_log" | "follow_up" | "proposal" | "capture_token" | "push_device" | "user" | "meal_page" | "meal_signup" | "journey" | "journey_template" | "volunteer_task" | "volunteer_claim" | "volunteer_group" | "volunteer_board" | "volunteer_series" | "corps_member" | "visiting_entry" | "corps_referral" | "mi_sheberach_entry" | "mi_sheberach_sync" | "agenda_entry" | "outside_person";
+export type AuditSubject = "care_item" | "contact_log" | "follow_up" | "proposal" | "capture_token" | "push_device" | "user" | "meal_page" | "meal_signup" | "journey" | "journey_template" | "volunteer_task" | "volunteer_claim" | "volunteer_group" | "volunteer_board" | "volunteer_series" | "corps_member" | "visiting_entry" | "corps_referral" | "corps_import" | "mi_sheberach_entry" | "mi_sheberach_sync" | "agenda_entry" | "outside_person";
 
 export type AuditDetail = {
   careItemId?: string | null;
@@ -160,6 +162,8 @@ export type AuditDetail = {
   entryKind?: string;
   consent?: string;
   source?: string;
+  /** The roster import from the old spreadsheet: how many people in each outcome. Numbers only, never a name or a tab's words. */
+  counts?: Record<string, number>;
 };
 
 export type MealAuditField = "foodFor" | "kashrut" | "dietary" | "allergies" | "dropOffWindow" | "dropOffInstructions" | "dropOffAddress" | "dropOffIsHome" | "thanks";

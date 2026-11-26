@@ -12,11 +12,15 @@ export const KIND_WORDS = {
   meal: "Meal",
   ride: "Ride",
   shiva_minyan: "Shiva minyan",
+  shiva_help: "Shiva help",
   errand: "Errand",
+  delivery: "Delivery",
+  pet_care: "Pet care",
+  tech_help: "Tech help",
   other: "Other",
 } as const;
 export type KindKey = keyof typeof KIND_WORDS;
-export const KIND_ORDER: KindKey[] = ["visit", "call", "meal", "ride", "shiva_minyan", "errand", "other"];
+export const KIND_ORDER: KindKey[] = ["visit", "call", "meal", "ride", "shiva_minyan", "shiva_help", "errand", "delivery", "pet_care", "tech_help", "other"];
 
 /** Ready-made tasks on the new-task page: they only prefill the form; every field stays editable. `needed` is left empty where the poster should write it. */
 export const QUICK_STARTS_LABEL = "Quick starts";

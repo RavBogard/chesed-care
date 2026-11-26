@@ -7,6 +7,7 @@ import { handOverRestrictedItems } from "@/server/care/care-items";
 import { addUser, updateUser } from "@/server/care/users";
 import { setTextDraft } from "@/server/care/text-drafts";
 import { handOverWork } from "@/server/team/handover";
+import { releaseImportedEmails } from "@/server/volunteers/release-emails";
 import { getViewer } from "@/server/auth/session";
 import { fields, runAction, runData } from "@/server/auth/action";
 import type { ActionState } from "@/lib/action-state";
@@ -29,6 +30,15 @@ export async function disconnectConnectorAction(_prev: ActionState, _form: FormD
   return runAction(await getViewer(), async (actor, db) => {
     await disconnectOwnConnections(db, actor);
     return "Disconnected.";
+  });
+}
+
+/** The owner turns email on for everyone imported from the old Mitzvah Corps sheet. Sends nothing itself. */
+export async function releaseImportedEmailsAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const f = fields(form);
+  return runAction(await getViewer(), async (actor, db) => {
+    const n = await releaseImportedEmails(db, actor, f.token);
+    return n === 1 ? "Turned on for 1 person." : `Turned on for ${n} people.`;
   });
 }
 

@@ -17,7 +17,7 @@ export const REMINDER_BUDGET_MS = 120_000;
 export const REMINDER_SEND_TIMEOUT_MS = 5_000;
 
 export async function runHelperReminders(db: Db, now: Date, deps: EmailDeps = {}, budgetMs: number = REMINDER_BUDGET_MS): Promise<Record<string, number>> {
-  const tally = { sent: 0, limited: 0, failed: 0, duplicate: 0, notConfigured: 0, skipped: 0 };
+  const tally = { sent: 0, limited: 0, failed: 0, duplicate: 0, notConfigured: 0, skipped: 0, held: 0 };
   const started = Date.now();
   const sendDeps = { timeoutMs: REMINDER_SEND_TIMEOUT_MS, ...deps, now };
   if (!emailStatus(deps.env).configured) return { ...tally, notConfigured: 1 };
@@ -27,6 +27,8 @@ export async function runHelperReminders(db: Db, now: Date, deps: EmailDeps = {}
     else if (r === "limited") tally.limited++;
     else if (r === "duplicate") tally.duplicate++;
     else if (r === "failed") tally.failed++;
+    // An imported volunteer not yet asked: never emailed (src/server/email/send.ts).
+    else if (r === "held") tally.held++;
   };
   const meals = await db
     .select({ id: mealSignups.id, email: mealSignups.email })

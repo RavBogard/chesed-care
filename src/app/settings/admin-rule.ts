@@ -1,4 +1,4 @@
-import { canEditJourneyTemplates, canManageUsers, canPrintTellSign, canSeeJobRuns, canSeeMiSheberachSync, type Actor } from "@/server/access/policy";
+import { canEditJourneyTemplates, canManageUsers, canPrintTellSign, canReleaseImportedEmails, canSeeJobRuns, canSeeMiSheberachSync, type Actor } from "@/server/access/policy";
 
 export const ADMIN_TITLE = "Admin";
 
@@ -8,5 +8,5 @@ export const ADMIN_TITLE = "Admin";
  * would find it empty.
  */
 export function hasAdmin(actor: Actor): boolean {
-  return canManageUsers(actor) || canEditJourneyTemplates(actor) || canSeeJobRuns(actor) || canSeeMiSheberachSync(actor) || canPrintTellSign(actor);
+  return canManageUsers(actor) || canEditJourneyTemplates(actor) || canSeeJobRuns(actor) || canSeeMiSheberachSync(actor) || canPrintTellSign(actor) || canReleaseImportedEmails(actor);
 }

@@ -5,7 +5,7 @@
  * in my mail app" step). There is no export. Nothing here sends anything, except emailAsk, which emails the members a coordinator ticked.
  */
 import { and, eq, inArray, isNotNull, isNull, lte, max, or, sql, type SQL } from "drizzle-orm";
-import { canManageRoster, deny, type Actor } from "@/server/access/policy";
+import { canManageRoster, canReadImportHistory, deny, type Actor } from "@/server/access/policy";
 import { writeAudit } from "@/server/care/audit";
 import { InvalidInput, NotFound, uuidList, uuidOrNotFound } from "@/server/care/validate";
 import { corpsAsks, corpsMembers, mealSignups, mealSlots, visitingList, volunteerClaims, volunteerTasks } from "@/server/db/schema";
@@ -20,7 +20,7 @@ import { normalizeContact, parse } from "./input";
 import { PENDING_DAYS } from "./join";
 import { getVolunteerSheet, getVolunteerTask, listAskAgain } from "./organiser";
 import { EMAIL_ASK_MAX, notifyMembers } from "./notify";
-import { forgetStopped, recordStopped, stoppedAmong } from "./stopped";
+import { forgetStopped, memberKeys, recordStopped, stoppedAmong } from "./stopped";
 import { CAN_DO, CAN_DO_FOR_KIND, HOW_OFTEN_DAYS, type CanDo } from "@/lib/can-do";
 import { contactsOf, memberInput, pauseInput } from "./roster-input";
 
@@ -31,6 +31,15 @@ export type EffectiveStatus = "active" | "paused" | "left" | "pending";
 export function effectiveStatus(m: Pick<Member, "status" | "pausedUntil">, today: string): EffectiveStatus {
   if (m.status === "paused" && m.pausedUntil !== null && m.pausedUntil <= today) return "active";
   return m.status;
+}
+
+/**
+ * Whether a member may be asked to help: active, and a volunteer. Someone from the old sheet's "IL members" tab who was
+ * not marked as a volunteer is on the roster to be seen and phoned, but no ask, text link, copied contact or count of
+ * available volunteers includes them.
+ */
+export function askable(m: Pick<Member, "status" | "pausedUntil" | "notVolunteered">, today: string): boolean {
+  return effectiveStatus(m, today) === "active" && !m.notVolunteered;
 }
 
 export type MemberView = {
@@ -56,7 +65,16 @@ export type MemberView = {
   leftAt: Date | null;
   /** A /join submission for this contact since: for a coordinator to act on. Nothing on the member changed. */
   askedToJoinAgainAt: Date | null;
+  /** Brought in from the old spreadsheet and not yet asked: the app sends them no roster email. */
+  emailsHeld: boolean;
+  /** From "IL members" and not marked as a volunteer: never asked. */
+  notVolunteered: boolean;
+  /** What the old spreadsheet said. Null for a member who did not come from it, and for anyone who may not read it. */
+  imported: ImportedView | null;
 };
+
+/** The old spreadsheet's record of a member, for the lead and clergy level only (canReadImportHistory). */
+export type ImportedView = { at: Date | null; sources: string[]; history: string | null; details: NonNullable<Member["importDetails"]> };
 
 // ─── how often each person has helped ───────────────────────────────────────────────────
 
@@ -105,7 +123,14 @@ export async function helpStats(db: Db, members: Keyed[], today: string): Promis
   return out;
 }
 
-const view = (m: Member, today: string, h: Helped | undefined): MemberView => ({
+/** The import's record, only for those the policy lets read it. Decided here, on the server, never by the screen. */
+function importedOf(m: Member, actor: Actor): ImportedView | null {
+  if (!canReadImportHistory(actor)) return null;
+  if (m.importedAt === null && m.importSources === null && m.importHistory === null) return null;
+  return { at: m.importedAt, sources: m.importSources ?? [], history: m.importHistory, details: m.importDetails ?? {} };
+}
+
+const view = (m: Member, today: string, h: Helped | undefined, actor: Actor): MemberView => ({
   id: m.id,
   firstName: m.firstName,
   lastName: m.lastName,
@@ -127,6 +152,9 @@ const view = (m: Member, today: string, h: Helped | undefined): MemberView => ({
   stoppedBy: m.stoppedBy,
   leftAt: m.leftAt,
   askedToJoinAgainAt: m.askedToJoinAgainAt,
+  emailsHeld: m.emailsHeld,
+  notVolunteered: m.notVolunteered,
+  imported: importedOf(m, actor),
 });
 
 // ─── the roster ─────────────────────────────────────────────────────────────────────────
@@ -148,7 +176,7 @@ export async function listRoster(db: Db, actor: Actor, filter: RosterFilter = {}
     return true;
   });
   const stats = await helpStats(db, kept, today);
-  return kept.map((m) => view(m, today, stats.get(m.id)));
+  return kept.map((m) => view(m, today, stats.get(m.id), actor));
 }
 
 async function load(db: Db, actor: Actor, id: unknown): Promise<Member> {
@@ -184,7 +212,7 @@ export async function addMember(db: Db, actor: Actor, input: unknown, now: Date 
     await writeAudit(tx, actor, "corps_member.add", "corps_member", m.id, { memberId: m.id, source: "coordinator" });
     return m;
   });
-  return view(row, today, undefined);
+  return view(row, today, undefined, actor);
 }
 
 /** Change a member's details. Their status is changed by the status functions below. */
@@ -192,7 +220,8 @@ export async function updateMember(db: Db, actor: Actor, id: unknown, input: unk
   const member = await load(db, actor, id);
   if (member.contactPurgedAt) throw new InvalidInput("status");
   const v = parse(memberInput, input);
-  const contacts = contactsOf(v);
+  // Someone from the old spreadsheet may have no contact on file yet; everyone else keeps at least one.
+  const contacts = contactsOf(v) ?? (member.importedAt ? { email: null, emailKey: null, mobile: null, mobileKey: null } : null);
   if (!contacts) throw new InvalidInput("contact");
   if (await holderOf(db, contacts, member.id)) throw new InvalidInput("contact");
   const row = await db.transaction(async (tx) => {
@@ -204,7 +233,7 @@ export async function updateMember(db: Db, actor: Actor, id: unknown, input: unk
     await writeAudit(tx, actor, "corps_member.update", "corps_member", m.id, { memberId: m.id });
     return m;
   });
-  return view(row, chicagoToday(now), undefined);
+  return view(row, chicagoToday(now), undefined, actor);
 }
 
 async function setStatus(db: Db, actor: Actor, id: unknown, set: Partial<typeof corpsMembers.$inferInsert>, to: EffectiveStatus): Promise<void> {
@@ -313,8 +342,9 @@ export type PastHelperCandidate = { key: string; firstName: string | null; lastN
  */
 export async function listPastHelperCandidates(db: Db, actor: Actor, now: Date = new Date()): Promise<PastHelperCandidate[]> {
   if (!canManageRoster(actor)) deny();
-  const [fromTasks, fromMeals, onRoster] = await Promise.all([listAskAgain(db, actor), listPastHelpers(db, actor, now), db.select({ e: corpsMembers.emailKey, m: corpsMembers.mobileKey }).from(corpsMembers)]);
-  const taken = new Set(onRoster.flatMap((r) => [r.e, r.m]).filter((k): k is string => k !== null));
+  const [fromTasks, fromMeals, onRoster] = await Promise.all([listAskAgain(db, actor), listPastHelpers(db, actor, now), db.select({ emailKey: corpsMembers.emailKey, mobileKey: corpsMembers.mobileKey, importDetails: corpsMembers.importDetails }).from(corpsMembers)]);
+  // A member's other contacts from the old spreadsheet count as theirs too.
+  const taken = new Set(onRoster.flatMap(memberKeys));
   const byKey = new Map<string, PastHelperCandidate>();
   const put = (c: PastHelperCandidate) => {
     const have = byKey.get(c.key);
@@ -353,13 +383,13 @@ export async function addFromPastHelper(db: Db, actor: Actor, key: unknown, now:
     await writeAudit(tx, actor, "corps_member.add", "corps_member", m.id, { memberId: m.id, source: "ask_again" });
     return m;
   });
-  return view(row, today, undefined);
+  return view(row, today, undefined, actor);
 }
 
 // ─── asking the roster ──────────────────────────────────────────────────────────────────
 
 export type AskTarget = { taskId: string } | { groupId: string };
-export type AskCandidate = { id: string; firstName: string; lastName: string | null; hasEmail: boolean; hasMobile: boolean; lastAsked: Date | null; lastHelpedOn: string | null; helpedLast12Months: number; canDoStated: boolean; preferContact: Member["preferContact"]; /** Asked more recently than they said they would like: they are listed last. */ askedRecently: boolean };
+export type AskCandidate = { id: string; firstName: string; lastName: string | null; /** False for a member whose emails are held: the app will not email them. */ hasEmail: boolean; emailsHeld: boolean; hasMobile: boolean; lastAsked: Date | null; lastHelpedOn: string | null; helpedLast12Months: number; canDoStated: boolean; preferContact: Member["preferContact"]; /** Asked more recently than they said they would like: they are listed last. */ askedRecently: boolean };
 
 type Target = { kind: keyof typeof CAN_DO_FOR_KIND; needed: string; publicToken: string | null; open: boolean; where: { taskId: string } | { groupId: string } };
 
@@ -379,13 +409,13 @@ export async function listAskCandidates(db: Db, actor: Actor, target: AskTarget,
   const t = await targetOf(db, actor, target, now);
   const today = chicagoToday(now);
   const want: CanDo = CAN_DO_FOR_KIND[t.kind];
-  const rows = (await db.select().from(corpsMembers)).filter((m) => effectiveStatus(m, today) === "active" && (m.canDo.length === 0 || m.canDo.includes(want)));
+  const rows = (await db.select().from(corpsMembers)).filter((m) => askable(m, today) && (m.canDo.length === 0 || m.canDo.includes(want)));
   const asked = rows.length ? await db.select({ id: corpsAsks.memberId, last: max(corpsAsks.askedAt) }).from(corpsAsks).where(inArray(corpsAsks.memberId, rows.map((r) => r.id))).groupBy(corpsAsks.memberId) : [];
   const lastAsked = new Map(asked.map((a) => [a.id, a.last]));
   const stats = await helpStats(db, rows, today);
   const recently = (m: Member, last: Date | null) => m.howOften !== null && last !== null && now.getTime() - last.getTime() < HOW_OFTEN_DAYS[m.howOften] * 86_400_000;
   return rows
-    .map((m) => ({ id: m.id, firstName: m.firstName, lastName: m.lastName, hasEmail: m.email !== null, hasMobile: m.mobile !== null, lastAsked: lastAsked.get(m.id) ?? null, lastHelpedOn: stats.get(m.id)?.last ?? null, helpedLast12Months: stats.get(m.id)?.count12 ?? 0, canDoStated: m.canDo.length > 0, preferContact: m.preferContact, askedRecently: recently(m, lastAsked.get(m.id) ?? null) }))
+    .map((m) => ({ id: m.id, firstName: m.firstName, lastName: m.lastName, hasEmail: m.email !== null && !m.emailsHeld, emailsHeld: m.emailsHeld, hasMobile: m.mobile !== null, lastAsked: lastAsked.get(m.id) ?? null, lastHelpedOn: stats.get(m.id)?.last ?? null, helpedLast12Months: stats.get(m.id)?.count12 ?? 0, canDoStated: m.canDo.length > 0, preferContact: m.preferContact, askedRecently: recently(m, lastAsked.get(m.id) ?? null) }))
     .sort((a, b) => Number(a.askedRecently) - Number(b.askedRecently) || (a.lastAsked?.getTime() ?? -Infinity) - (b.lastAsked?.getTime() ?? -Infinity) || a.firstName.localeCompare(b.firstName));
 }
 
@@ -404,7 +434,7 @@ async function resolveAsk(db: Db, actor: Actor, target: AskTarget, memberIds: un
   const t = await targetOf(db, actor, target, now);
   if (!t.open || !t.publicToken || !origin) throw new InvalidInput("status");
   const today = chicagoToday(now);
-  const members = (await db.select().from(corpsMembers).where(inArray(corpsMembers.id, ids))).filter((m) => effectiveStatus(m, today) === "active" && m.contactPurgedAt === null);
+  const members = (await db.select().from(corpsMembers).where(inArray(corpsMembers.id, ids))).filter((m) => askable(m, today) && m.contactPurgedAt === null);
   if (members.length === 0) throw new InvalidInput("members");
   const url = "groupId" in t.where ? `${origin}/v/s/${t.publicToken}` : `${origin}/v/${t.publicToken}`;
   return { t, members, today, body: askBody(t.needed, url) };
@@ -420,7 +450,8 @@ async function recordAsk(db: Db, actor: Actor, t: Target, members: Member[], now
 export async function prepareAsk(db: Db, actor: Actor, target: AskTarget, memberIds: unknown, origin: string, now: Date = new Date()): Promise<AskPrepared> {
   const { t, members, body } = await resolveAsk(db, actor, target, memberIds, origin, now);
   await recordAsk(db, actor, t, members, now);
-  const emails = safeEmails(members.flatMap((m) => (m.email ? [m.email] : [])));
+  // Not even for the coordinator's own mail app: an imported member is phoned or texted until their email is turned on.
+  const emails = safeEmails(members.flatMap((m) => (m.email && !m.emailsHeld ? [m.email] : [])));
   const mobiles = safeNumbers(members.flatMap((m) => (m.mobile ? [m.mobile] : [])));
   const texts = members.flatMap((m) => {
     const [href] = m.mobile ? smsLinks([m.mobile], body) : [];
@@ -429,7 +460,7 @@ export async function prepareAsk(db: Db, actor: Actor, target: AskTarget, member
   return { count: members.length, emails, mobiles, mailto: mailtoLinks(emails, ASK_SUBJECT, body), texts, body };
 }
 
-export type EmailAsked = { configured: boolean; sent: number; noEmail: number; notSent: number };
+export type EmailAsked = { configured: boolean; sent: number; noEmail: number; notSent: number; /** Imported, not yet asked: never emailed. */ held: number };
 
 /**
  * "Send from CRC Care": the same checks and the same record as prepareAsk (only people who may be asked, an open task or
@@ -438,15 +469,17 @@ export type EmailAsked = { configured: boolean; sent: number; noEmail: number; n
  */
 export async function emailAsk(db: Db, actor: Actor, target: AskTarget, memberIds: unknown, origin: string, now: Date = new Date(), deps?: EmailDeps): Promise<EmailAsked> {
   const { t, members, today, body } = await resolveAsk(db, actor, target, memberIds, origin, now, EMAIL_ASK_MAX);
-  if (!emailStatus(deps?.env).configured) return { configured: false, sent: 0, noEmail: 0, notSent: 0 };
+  if (!emailStatus(deps?.env).configured) return { configured: false, sent: 0, noEmail: 0, notSent: 0, held: 0 };
   const ref = `${"taskId" in t.where ? t.where.taskId : t.where.groupId}:${today}`;
-  const result = await notifyMembers(members, { subject: ASK_SUBJECT, body }, "email", { db, origin, ref, deps: { ...deps, now } });
+  // Imported members not yet asked are left out before anything is sent (and sendEmail refuses them too).
+  const held = members.filter((m) => m.emailsHeld).length;
+  const result = await notifyMembers(members.filter((m) => !m.emailsHeld), { subject: ASK_SUBJECT, body }, "email", { db, origin, ref, deps: { ...deps, now } });
   if (result.status === "done" && result.sentIds.length > 0) {
     // Only people who were actually emailed are noted as asked.
     const emailed = new Set(result.sentIds);
     await recordAsk(db, actor, t, members.filter((m) => emailed.has(m.id)), now);
   }
-  return result.status === "done" ? { configured: true, sent: result.sent, noEmail: result.noEmail, notSent: result.notSent } : { configured: false, sent: 0, noEmail: 0, notSent: 0 };
+  return result.status === "done" ? { configured: true, sent: result.sent, noEmail: result.noEmail, notSent: result.notSent, held } : { configured: false, sent: 0, noEmail: 0, notSent: 0, held: 0 };
 }
 
 // ─── upkeep, for the daily job ──────────────────────────────────────────────────────────

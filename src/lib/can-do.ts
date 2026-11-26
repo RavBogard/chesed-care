@@ -1,9 +1,9 @@
 /** What a Mitzvah Corps member can do, and what each kind of task asks. Plain data, safe for server and browser code alike. */
-export const CAN_DO = ["visits", "calls", "meals", "rides", "shiva_minyan", "errands", "soup", "baking", "care_packages", "house_sitting", "other"] as const;
+export const CAN_DO = ["visits", "calls", "meals", "rides", "shiva_minyan", "shiva_help", "errands", "deliveries", "soup", "baking", "care_packages", "house_sitting", "pet_care", "tech_help", "other"] as const;
 export type CanDo = (typeof CAN_DO)[number];
 
 /** What a task of each kind asks of a member. */
-export const CAN_DO_FOR_KIND = { visit: "visits", call: "calls", meal: "meals", ride: "rides", shiva_minyan: "shiva_minyan", errand: "errands", other: "other" } as const satisfies Record<string, CanDo>;
+export const CAN_DO_FOR_KIND = { visit: "visits", call: "calls", meal: "meals", ride: "rides", shiva_minyan: "shiva_minyan", shiva_help: "shiva_help", errand: "errands", delivery: "deliveries", pet_care: "pet_care", tech_help: "tech_help", other: "other" } as const satisfies Record<string, CanDo>;
 
 /** How often a member would like to be asked, and how they prefer to hear from us (both optional). */
 export const HOW_OFTEN = ["once_a_year", "twice_a_year", "quarterly", "monthly", "as_needed"] as const;

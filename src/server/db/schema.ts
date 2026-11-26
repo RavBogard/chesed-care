@@ -525,7 +525,7 @@ export const mealRateLimits = pgTable(
 // A small ask posted by a lead or clergy and taken by a volunteer with no account, through a
 // secret link (src/server/volunteers). A task never carries anything from a care record.
 
-export const volunteerKind = pgEnum("volunteer_kind", ["visit", "call", "meal", "ride", "shiva_minyan", "errand", "other"]);
+export const volunteerKind = pgEnum("volunteer_kind", ["visit", "call", "meal", "ride", "shiva_minyan", "errand", "other", "shiva_help", "delivery", "pet_care", "tech_help"]);
 export const volunteerTaskStatus = pgEnum("volunteer_task_status", ["open", "done", "cancelled"]);
 export const volunteerCancelledBy = pgEnum("volunteer_cancelled_by", ["volunteer", "poster"]);
 
@@ -867,7 +867,32 @@ export const suggestionDismissals = pgTable(
 export const corpsMemberStatus = pgEnum("corps_member_status", ["active", "paused", "left", "pending"]);
 /** Who ended a membership: the person through their stop link, or a coordinator. A self-stop is undone only by the person asking again AND a coordinator confirming. */
 export const corpsStoppedBy = pgEnum("corps_stopped_by", ["self", "coordinator"]);
-export const corpsMemberSource = pgEnum("corps_member_source", ["form", "coordinator", "ask_again"]);
+/** "import": brought in from the old Mitzvah Corps spreadsheet (src/server/volunteers/import). */
+export const corpsMemberSource = pgEnum("corps_member_source", ["form", "coordinator", "ask_again", "import"]);
+
+/**
+ * What the spreadsheet import kept about a person that has no column of its own. Seen by the people who manage the roster
+ * (owner, clergy, lead). The history of whom they helped is NOT here: it is import_history, for the lead and clergy level only.
+ */
+export type CorpsImportDetails = {
+  /** Contacts beyond the one on the member's row, and contacts another person on the roster already holds. */
+  otherEmails?: string[];
+  otherPhones?: string[];
+  address?: string | null;
+  city?: string | null;
+  zip?: string | null;
+  /** Offers that have no category in the app, as the sheet's column label (and the cell when it said more than "X"). */
+  offers?: string[];
+  /** How often, in the sheet's own words. */
+  frequency?: string | null;
+  notes?: string[];
+  /** Marks the sheet put by a first name, such as "*". */
+  markers?: string[];
+  okToText?: boolean | null;
+  coordinatorInterest?: boolean | null;
+  /** The form's timestamp (ISO), the latest when there were several. */
+  formAt?: string | null;
+};
 
 export const corpsHowOften = pgEnum("corps_how_often", ["once_a_year", "twice_a_year", "quarterly", "monthly", "as_needed"]);
 export const corpsPreferContact = pgEnum("corps_prefer_contact", ["email", "text", "call"]);
@@ -903,7 +928,8 @@ export const corpsMembers = pgTable(
     lastHelpedOn: date("last_helped_on"),
     /** Times helped, kept on the row for members whose claims can no longer be matched (those cleared before 2026-11-25). */
     helpedCount: integer("helped_count").notNull().default(0),
-    consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
+    /** Null only for a member brought in from the old spreadsheet: they never said yes in the app, even after the owner turned their email on (emails_released_at). */
+    consentAt: timestamp("consent_at", { withTimezone: true }),
     /** Only the hash of the "stop asking me" link is stored. */
     stopTokenHash: text("stop_token_hash"),
     leftAt: timestamp("left_at", { withTimezone: true }),
@@ -911,6 +937,29 @@ export const corpsMembers = pgTable(
     /** A /join submission for a contact already on the roster changes nothing but this: a timestamp for coordinators to act on. */
     askedToJoinAgainAt: timestamp("asked_to_join_again_at", { withTimezone: true }),
     contactPurgedAt: timestamp("contact_purged_at", { withTimezone: true }),
+    /** When the spreadsheet import first brought this person in. Null for everyone else. */
+    importedAt: timestamp("imported_at", { withTimezone: true }),
+    /**
+     * Imported, not yet asked: while true the app sends this person no mail the roster starts (asks, the welcome, anything
+     * new); what they sign up for themselves (a confirmation, a day-before reminder) still goes (src/server/email/roster-gate.ts).
+     * The import sets it; only the owner's switch for everyone imported turns it off. The import never sets it back.
+     */
+    emailsHeld: boolean("emails_held").notNull().default(false),
+    /** The spreadsheet tabs this person came from. For the lead and clergy level only. */
+    importSources: text("import_sources").array(),
+    /** "IL members" tab, not starred as a volunteer: shown on the roster, never asked, never counted as available, never emailed. */
+    notVolunteered: boolean("not_volunteered").notNull().default(false),
+    /** A stable fingerprint of each sheet row this member came from (tab and the row's content): how a re-run finds them first. */
+    importFingerprints: text("import_fingerprints").array(),
+    /** When the owner turned email on for everyone imported. Not consent: consent_at stays empty until they join or are asked. */
+    emailsReleasedAt: timestamp("emails_released_at", { withTimezone: true }),
+    /** The first email after that carries one sentence saying what this is, and the stop link; then this is cleared. */
+    introPending: boolean("intro_pending").notNull().default(false),
+    /** The old sheet's "responded/date" history: whom they helped. For the lead and clergy level only; never in a log, email, push or audit row. */
+    importHistory: text("import_history"),
+    importDetails: jsonb("import_details").$type<CorpsImportDetails>(),
+    /** A hash of the fields as the import last wrote them: a row whose fields no longer match was edited by a person, and is not overwritten. */
+    importHash: text("import_hash"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -919,7 +968,8 @@ export const corpsMembers = pgTable(
     uniqueIndex("corps_members_mobile_key").on(t.mobileKey).where(sql`${t.mobileKey} is not null`),
     uniqueIndex("corps_members_stop_token_key").on(t.stopTokenHash).where(sql`${t.stopTokenHash} is not null`),
     index("corps_members_status_idx").on(t.status),
-    check("corps_members_contact", sql`${t.contactPurgedAt} is not null or ${t.emailKey} is not null or ${t.mobileKey} is not null`),
+    // Someone from the old spreadsheet may have no email or phone on file: the lead finds them another way.
+    check("corps_members_contact", sql`${t.contactPurgedAt} is not null or ${t.emailKey} is not null or ${t.mobileKey} is not null or ${t.importedAt} is not null`),
   ],
 );
 

@@ -8,6 +8,7 @@ import { createHmac } from "node:crypto";
 import { inArray } from "drizzle-orm";
 import { corpsStoppedContacts, mealSignups, volunteerClaims } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
+import { normalizeContact } from "./input";
 
 function salt(): Buffer {
   const secret = process.env.BETTER_AUTH_SECRET;
@@ -18,11 +19,18 @@ function salt(): Buffer {
 /** The salted hash of a normalised contact key (a lower-case email or the digits of a number). */
 export const stoppedHash = (key: string): string => createHmac("sha256", salt()).update(key).digest("base64url");
 
-const keysOf = (m: { emailKey: string | null; mobileKey: string | null }) => [m.emailKey, m.mobileKey].filter((k): k is string => k !== null);
+/** A member's contact keys, and those of the other emails and phones the old spreadsheet gave for them. */
+export type Keyed = { emailKey: string | null; mobileKey: string | null; importDetails?: { otherEmails?: string[]; otherPhones?: string[] } | null };
+
+/** Every contact key a member holds: their own, and (for someone from the old spreadsheet) their other emails and phones, normalised the same way. */
+export function memberKeys(m: Keyed): string[] {
+  const others = [...(m.importDetails?.otherEmails ?? []), ...(m.importDetails?.otherPhones ?? [])].map((c) => normalizeContact(c)?.key ?? null);
+  return [...new Set([m.emailKey, m.mobileKey, ...others].filter((k): k is string => k !== null))];
+}
 
 /** Turn off every "ask me again" tick for these contacts and remember that they stopped. */
-export async function recordStopped(db: Db, member: { emailKey: string | null; mobileKey: string | null }): Promise<void> {
-  const keys = keysOf(member);
+export async function recordStopped(db: Db, member: Keyed): Promise<void> {
+  const keys = memberKeys(member);
   if (keys.length === 0) return;
   await db.update(volunteerClaims).set({ mayAskAgain: false }).where(inArray(volunteerClaims.contactKey, keys));
   await db.update(mealSignups).set({ mayContactAgain: false }).where(inArray(mealSignups.email, keys));
@@ -30,8 +38,8 @@ export async function recordStopped(db: Db, member: { emailKey: string | null; m
 }
 
 /** They are back, with a coordinator's confirmation: forget that they stopped. */
-export async function forgetStopped(db: Db, member: { emailKey: string | null; mobileKey: string | null }): Promise<void> {
-  const keys = keysOf(member);
+export async function forgetStopped(db: Db, member: Keyed): Promise<void> {
+  const keys = memberKeys(member);
   if (keys.length === 0) return;
   await db.delete(corpsStoppedContacts).where(inArray(corpsStoppedContacts.hash, keys.map(stoppedHash)));
 }

@@ -12,7 +12,7 @@
  *    oracle on who is on the list, and nobody is thanked for a submission that was dropped.
  * Nothing is logged: no names, contacts or words.
  */
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import { writeLinkAudit } from "@/server/care/audit";
 import { corpsMembers, visitingList } from "@/server/db/schema";
 import type { Db } from "@/server/db/types";
@@ -23,7 +23,7 @@ import { newToken, tokenHash } from "@/server/meals/tokens";
 import { normalizeContact } from "./input";
 import { memberOfSignedStop } from "./stop-link";
 import { contactsOf, joinInput } from "./roster-input";
-import { recordStopped, stoppedAmong } from "./stopped";
+import { memberKeys, recordStopped, stoppedAmong } from "./stopped";
 
 export const JOIN_LIMITS = {
   /** Valid submissions from one client per clock hour. */
@@ -45,6 +45,14 @@ const no = (reason: JoinRefusal["reason"], fields: string[] = []): JoinRefusal =
 /** `onNew`: told once about a NEW member who gave an email address (never for an existing contact or a returning one), with the plain stop token, which is kept in memory only long enough to email it. */
 export type JoinHooks = { onNew?: (joined: { memberId: string; email: string; stopToken: string }) => void };
 
+/** The member who holds this contact: as their own, or as another email or phone the old spreadsheet gave for them. */
+async function memberWithKey(db: Db, isEmail: boolean, key: string): Promise<{ id: string } | undefined> {
+  const [own] = await db.select({ id: corpsMembers.id }).from(corpsMembers).where(eq(isEmail ? corpsMembers.emailKey : corpsMembers.mobileKey, key)).limit(1);
+  if (own) return own;
+  const imported = await db.select({ id: corpsMembers.id, emailKey: corpsMembers.emailKey, mobileKey: corpsMembers.mobileKey, importDetails: corpsMembers.importDetails }).from(corpsMembers).where(isNotNull(corpsMembers.importDetails));
+  return imported.find((m) => memberKeys(m).includes(key));
+}
+
 export async function submitJoin(db: Db, input: unknown, meta: unknown, now: Date = new Date(), hooks: JoinHooks = {}): Promise<JoinResult> {
   const parsedMeta = clientMetaInput.safeParse(meta);
   if (!parsedMeta.success) return no("refused");
@@ -61,7 +69,7 @@ export async function submitJoin(db: Db, input: unknown, meta: unknown, now: Dat
   const n = normalizeContact(v.contact)!;
   const isEmail = v.contact.includes("@");
   const contacts = contactsOf(isEmail ? { email: v.contact } : { mobile: v.contact })!;
-  const [existing] = await db.select({ id: corpsMembers.id }).from(corpsMembers).where(eq(isEmail ? corpsMembers.emailKey : corpsMembers.mobileKey, n.key)).limit(1);
+  const existing = await memberWithKey(db, isEmail, n.key);
   if (existing) {
     // Nothing of theirs changes: only a flag for a coordinator.
     await db.update(corpsMembers).set({ askedToJoinAgainAt: now }).where(eq(corpsMembers.id, existing.id));

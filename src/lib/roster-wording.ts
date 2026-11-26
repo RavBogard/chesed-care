@@ -42,11 +42,15 @@ export const CAN_DO_LABEL: Record<CanDo, string> = {
   meals: "Meals",
   rides: "Rides",
   shiva_minyan: "Shiva minyan",
+  shiva_help: "Shiva help: setting up, receiving deliveries",
   errands: "Errands",
+  deliveries: "Deliveries: soup, challah, a meal",
   soup: "Making soup",
   baking: "Baking challah",
   care_packages: "Care packages",
   house_sitting: "Staying at a house during a funeral",
+  pet_care: "Pet care: walking a dog, pet sitting",
+  tech_help: "Tech help",
   other: "Something else",
 };
 
@@ -71,7 +75,20 @@ export const ROSTER_HINTS = {
   contact: "At least one: an email, a mobile number, or both.",
   noExport: "Contact details are shown here and when you copy them to ask for help. They cannot be exported.",
 } as const;
-export const SOURCE_LABEL = { form: "Joined by the form", coordinator: "Added by a coordinator", ask_again: "Said \"ask me again\"" } as const;
+export const SOURCE_LABEL = { form: "Joined by the form", coordinator: "Added by a coordinator", ask_again: "Said \"ask me again\"", import: "From the old spreadsheet" } as const;
+export const IMPORTED_MARK = "Imported, not yet asked";
+export const IMPORTED_NOTE = "CRC Care sends them no email until this is turned on. Phone them first.";
+export const importedFromWords = (tabs: string[]) => `On the old sheet: ${tabs.join(", ")}`;
+export const IMPORTED_HISTORY_LABEL = "Helped before (lead and clergy only)";
+export const IMPORTED_OFFERS_LABEL = "Also offered";
+export const IMPORTED_NOTES_LABEL = "Old sheet notes";
+export const NOT_VOLUNTEERED_WORDS = "From: IL members, has not volunteered";
+export const NOT_VOLUNTEERED_NOTE = "Shown so you can phone them. They are not asked about tasks.";
+export const RELEASE_TITLE = "Email for people from the old Mitzvah Corps sheet";
+export const RELEASE_EXPLAIN = "People brought in from the old spreadsheet get no email from CRC Care until you turn it on, for all of them at once. Their first email will say what this is and how to stop. Nothing is sent when you press this.";
+export const releaseConfirmWords = (n: number) =>
+  `This turns email on for ${n === 1 ? "1 person" : `${n} people`} from the old sheet who have an email address. It leaves out anyone who left or asked to stop, and anyone from IL members who has not volunteered. It does not record that they agreed. It cannot be undone here.`;
+export const RELEASE_NONE = "Nobody from the old sheet is waiting for email to be turned on.";
 export const STATUS_LABEL = { active: "Active", paused: "Paused", left: "Left", pending: "Waiting" } as const;
 export const PENDING_HEADING = "Waiting for you to accept";
 export const PENDING_NOTE = "People who used the sign-up page. They are not asked about anything until you accept them, and are deleted after 14 days if you do not.";
@@ -91,8 +108,8 @@ export const ASK_INTRO = `Tick the people to ask. You can send the ask by email 
 export const ASK_EMAIL_BUTTON = `Send from ${APP_NAME}`;
 export const ASK_EMAIL_TOO_MANY = `Pick at most 60 people to send from ${APP_NAME} at once.`;
 export const ASK_EMAIL_OFF = "Email is not set up yet. Use your own mail app instead.";
-export const askEmailResult = (sent: number, noEmail: number, notSent: number) =>
-  [`Sent to ${sent}`, noEmail > 0 ? `${noEmail} had no email address` : null, notSent > 0 ? `${notSent} could not be sent` : null].filter(Boolean).join(". ") + ".";
+export const askEmailResult = (sent: number, noEmail: number, notSent: number, held = 0) =>
+  [`Sent to ${sent}`, noEmail > 0 ? `${noEmail} had no email address` : null, held > 0 ? `${held} not emailed: imported, not yet asked` : null, notSent > 0 ? `${notSent} could not be sent` : null].filter(Boolean).join(". ") + ".";
 export const ASK_EMPTY = "Nobody on the roster can be asked about this yet.";
 export const ASK_SUBMIT = "Get their contacts";
 export const ASK_RECORDED = "Noted as asked today.";

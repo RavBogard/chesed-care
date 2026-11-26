@@ -639,6 +639,24 @@ export function canManageRoster(actor: { role: Role }): boolean {
 }
 
 /**
+ * What the old Mitzvah Corps spreadsheet said about a member: the tabs they came from and its "responded/date" history,
+ * which names members who were helped. The Mitzvah Corps lead and clergy level (owner, clergy) only: named here on its
+ * own, so that letting more people manage the roster later does not let them read it. Never on a public page, in an
+ * email, a push notice, a log or an audit row.
+ */
+export function canReadImportHistory(actor: { role: Role }): boolean {
+  return actor.role === "owner" || actor.role === "clergy" || actor.role === "lead";
+}
+
+/**
+ * Turning email on for everyone brought in from the old spreadsheet: the owner only, for all of them at once (Daniel,
+ * 2026-11-26). Never the lead, never per person.
+ */
+export function canReleaseImportedEmails(actor: { role: Role }): boolean {
+  return actor.role === "owner";
+}
+
+/**
  * Referrals to Mitzvah Corps. Clergy level (owner, clergy) refer a person and withdraw a referral; the lead also sees the
  * open ones that are ready for her and acts on them ("I'll take this", done, they said no). Nothing is copied into a referral from a
  * care record: it holds what the rabbi chose to write, and what to tell her is the rabbi's to decide. Everyone else gets nothing, not even that it exists.

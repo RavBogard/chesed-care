@@ -146,6 +146,27 @@ describe("the roster screen and the lead's nav", () => {
     expect(navItems(t.clergy).some((i) => i.href === "/volunteers/roster")).toBe(true);
   });
 
+  it("an imported member shows a quiet 'Imported, not yet asked' mark, the tabs, and the history for the lead and clergy", async () => {
+    const { runRosterImport } = await import("@/server/volunteers/import/run");
+    const { sampleSheet } = await import("./support/roster-sheet");
+    await runRosterImport(db, sampleSheet(), { apply: true, now: NOW });
+    for (const a of [t.owner, t.clergy, t.lead]) {
+      as(a);
+      const out = await html(RosterPage({ searchParams: p({}) }));
+      expect(out).toContain('data-testid="imported-mark"');
+      expect(out).toContain("Imported, not yet asked");
+      expect(out).toContain("CRC Care sends them no email until this is turned on.");
+      expect(out).toContain("On the old sheet: MC Volunteers, Volunteer Form Responses");
+      expect(out).toContain("meal for Ploni Almoni 3/22");
+      expect(out).toContain("From the old spreadsheet");
+    }
+    for (const a of [t.staff, t.carer, t.senior]) {
+      as(a);
+      const out = await html(RosterPage({ searchParams: p({}) }));
+      expect(out).not.toMatch(/Ploni|Imported, not yet asked|MC Volunteers/);
+    }
+  });
+
   it("the printable sign carries the public address and is for roster managers only", async () => {
     as(t.lead);
     expect(await html(RosterSignPage())).toContain("https://care.example.test/join");

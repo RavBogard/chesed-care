@@ -8,7 +8,7 @@ import { clean, day } from "@/server/meals/input";
 
 export { badFields, parse, type ClientMeta } from "@/server/meals/input";
 
-export const KINDS = ["visit", "call", "meal", "ride", "shiva_minyan", "errand", "other"] as const;
+export const KINDS = ["visit", "call", "meal", "ride", "shiva_minyan", "shiva_help", "errand", "delivery", "pet_care", "tech_help", "other"] as const;
 export type Kind = (typeof KINDS)[number];
 /** Ten make a minyan. */
 export const MINYAN = 10;
